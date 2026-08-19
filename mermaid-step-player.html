@@ -519,6 +519,8 @@ function exportPlayback(){
   // 播放文件只用于浏览，摘掉整个 GIF 导出模块（含内联 gif worker base64 与导出按钮绑定），减小体积
   const scriptText = document.querySelector('script[type="module"]').textContent
     .replace(/\n\$\(['"]src['"]\)\.value\s*=\s*SAMPLES\[0];\s*$/, "\ngenerate();")
+    // 播放文件已移除“最大化”按钮，去掉其 onclick 绑定，否则 $('max') 为 null 会在初始化时抛错，导致整个模块中断、按钮全失灵
+    .replace(/\n[ \t]*\$\('max'\)\.onclick[^\n]*\n/, '\n')
     .replace(/\/\/ ===== 导出“GIF 动图”[\s\S]*?\$\('export'\)\.onclick[\s\S]*?\r?\n\};\r?\n/, '');
   const rightHtml = document.querySelector('.right').outerHTML;
   // 播放文件去掉与浏览无关的控件：导出按钮、格式/缩放/过渡帧选项、最大化按钮
