@@ -113,6 +113,8 @@
         <option value="html">独立 HTML 播放文件</option>
         <option value="gif">GIF 动图</option>
       </select>
+      <label style="font-size:14px;margin-left:8px;">导出缩放：</label>
+      <input type="number" id="gifScale" min="0.2" max="8" step="0.2" value="2" style="width:56px;font-size:13px;">×
       <label style="font-size:14px;margin-left:8px;">分支：</label>
       <select id="branches" disabled><option value="">全部（深度优先）</option></select>
       <label style="font-size:14px;margin-left:12px;">缩放：</label>
@@ -196,7 +198,7 @@ function quoteLabels(mmd){
   return mmd;
 }
 
-let STEPS = [], GLOBAL_STEPS = [], BRANCH_STEPS = [], branches = [], branchMode = false, branchPreview = null, step = 0, timer = null, FULL_MMD = '', CUR_FULL = '', zoom = 1, baseW = 0, baseH = 0, cyclic = false, backEdges = new Set(), ALL_NODE_IDS = new Set();
+let STEPS = [], GLOBAL_STEPS = [], BRANCH_STEPS = [], branches = [], branchMode = false, branchPreview = null, step = 0, timer = null, FULL_MMD = '', CUR_FULL = '', zoom = 1, baseW = 0, baseH = 0, cyclic = false, backEdges = new Set();
 
 function dfsOrder(ast){
   const indeg = new Map();
@@ -347,17 +349,6 @@ function buildDirectives(s){
   return d;
 }
 
-// GIF 用：始终渲染完整图布局，未揭示节点/边用 hiddenNode/hiddenEdge 隐藏（避免逐步删除导致重排变形）
-function buildGifDirectives(s){
-  let d = '';
-  for(const n of ALL_NODE_IDS){
-    if(s.revealedNodes.has(n)) d += `class ${n} ${s.branchNodes.has(n) ? 'branchNode' : 'dimNode'};\n`;
-    else d += `class ${n} hiddenNode;\n`;
-  }
-  if(!s.noPulse) d += `class ${s.currentId} curNode;\n`;
-  return d;
-}
-
 async function show(i){
   const stage = $('stage');
   // i === -1：总览 / 分支预览（不进入逐步演示）
@@ -456,7 +447,6 @@ async function generate(){
   }
   try {
     const ast = parseFlowchart(code);
-    ALL_NODE_IDS = new Set(ast.nodes.keys());   // 收集全部节点 id，供 GIF 按完整布局隐藏未揭示节点
     FULL_MMD = quoteLabels(renderFlowchart(ast));          // 完整图，供总览/重置使用
     const fb = findBranches(ast);
     branches = fb.branches; cyclic = fb.cyclic; backEdges = fb.backEdges;  // 含环图不再爆栈；backEdges 用于把回边标成循环边
@@ -560,16 +550,18 @@ async function getFullSize(){
   const { svg } = await window.mermaid.render('full'+(CAP_ID++), CUR_FULL);
   const div = document.createElement('div'); div.innerHTML = svg;
   const s = div.querySelector('svg');
-  const w = parseFloat(s.getAttribute('width')) || (s.viewBox && s.viewBox.baseVal.width) || 600;
-  const h = parseFloat(s.getAttribute('height')) || (s.viewBox && s.viewBox.baseVal.height) || 400;
+  // mermaid 给 svg 的 width/height 是 "100%"，必须用 viewBox 取真实像素尺寸
+  const vb = s.viewBox && s.viewBox.baseVal;
+  const w = (vb && vb.width) || parseFloat(s.getAttribute('width')) || 600;
+  const h = (vb && vb.height) || parseFloat(s.getAttribute('height')) || 400;
   FULL_SIZE = { w: Math.round(w), h: Math.round(h) };
   return FULL_SIZE;
 }
 
-// 把某一步渲染成 canvas：始终渲染【完整图布局】，未揭示节点/边隐藏（位置固定不重排、不变形），
-// 按软件内缩放比例 scale 等比重缩放（文字大小恒定），画布=完整图尺寸×scale
+// 把某一步渲染成 canvas：用【逐步揭示的局部图】渲染（未揭示的边/标签本就不在源码里，不会提前出现），
+// 按导出缩放 scale 等比重缩放（文字大小恒定），居中放置在统一画布上（画布=完整图尺寸×scale，不拉伸不变形）
 async function frameToCanvas(s, scale, canvasW, canvasH){
-  const { svg: svgStr } = await window.mermaid.render('cap'+(CAP_ID++), CUR_FULL + '\n' + buildGifDirectives(s));
+  const { svg: svgStr } = await window.mermaid.render('cap'+(CAP_ID++), s.mmd + '\n' + buildDirectives(s));
   const holder = document.createElement('div'); holder.innerHTML = svgStr;
   const svg = holder.querySelector('svg');
   const bk = new Set(s.branchEdges.map(([a,b]) => a+'|'+b));
@@ -580,17 +572,17 @@ async function frameToCanvas(s, scale, canvasW, canvasH){
     const le = (cls.match(/LE-([\w-]+)/) || [])[1];
     if(ls && le){
       const k = ls + '|' + le;
-      if(!s.revealedNodes.has(ls) || !s.revealedNodes.has(le)){ p.style.display = 'none'; return; } // 未揭示的边隐藏
       if(ck.has(k)) p.classList.add('cycle-edge');
       else if(bk.has(k)) p.classList.add('branch-edge');
       else p.classList.add('dim-edge');
-    } else p.style.display = 'none';
+    } else p.classList.add('dim-edge');
   });
-  // 完整图布局，各帧尺寸/位置完全一致，文字大小恒定
-  const Nw = parseFloat(svg.getAttribute('width')) || (svg.viewBox && svg.viewBox.baseVal.width) || 600;
-  const Nh = parseFloat(svg.getAttribute('height')) || (svg.viewBox && svg.viewBox.baseVal.height) || 400;
+  // 用 viewBox 取真实像素尺寸（svg 的 width 是 "100%"，不能直接用）
+  const vb = svg.viewBox && svg.viewBox.baseVal;
+  const Nw = (vb && vb.width) || parseFloat(svg.getAttribute('width')) || 600;
+  const Nh = (vb && vb.height) || parseFloat(svg.getAttribute('height')) || 400;
   const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-  styleEl.textContent = CAPTURE_CSS + '\n.hiddenNode{display:none !important;}';   // 隐藏未揭示节点
+  styleEl.textContent = CAPTURE_CSS;
   svg.insertBefore(styleEl, svg.firstChild);
   const xml = new XMLSerializer().serializeToString(svg);
   const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
@@ -601,7 +593,9 @@ async function frameToCanvas(s, scale, canvasW, canvasH){
   canvas.width = canvasW; canvas.height = canvasH;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(img, 0, 0, Nw * scale, Nh * scale);   // 等比重缩放铺满画布，文字大小恒定
+  const dw = Nw * scale, dh = Nh * scale;          // 等比重缩放，文字大小恒定、不拉伸
+  const dx = Math.max(0, (canvasW - dw) / 2), dy = Math.max(0, (canvasH - dh) / 2);
+  ctx.drawImage(img, dx, dy, dw, dh);
   return canvas;
 }
 
@@ -612,8 +606,8 @@ async function exportGif(){
   try {
     await loadScript(GIF_LIB);
     const full = await getFullSize();
-    // 固定文字大小：按软件内当前缩放比例 zoom 输出，画布=完整图自然尺寸×zoom（恒定），各帧文字绝对大小一致
-    const scale = zoom || 1;
+    // 尺寸由“导出缩放”控制（独立于屏幕缩放）：画布=完整图自然尺寸×gifScale，文字大小恒定、各帧一致
+    const scale = parseFloat($('gifScale').value) || 2;
     const canvasW = Math.max(1, Math.round(full.w * scale));
     const canvasH = Math.max(1, Math.round(full.h * scale));
     const workerUrl = URL.createObjectURL(new Blob([atob(GIF_WORKER_B64)], { type: 'application/javascript' }));
