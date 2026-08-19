@@ -107,6 +107,7 @@
       <button class="ghost" id="reset">重置</button>
       <button class="ghost" id="max">⛶ 最大化</button>
       <button class="ghost" id="help">❔ 操作指引</button>
+      <button class="ghost" id="export">⤓ 导出播放文件</button>
       <label style="font-size:14px;margin-left:8px;">分支：</label>
       <select id="branches" disabled><option value="">全部（深度优先）</option></select>
       <label style="font-size:14px;margin-left:12px;">缩放：</label>
@@ -130,6 +131,7 @@
       <li><b>键盘快捷键</b>：<kbd>←</kbd> 上一步，<kbd>→</kbd> 下一步，<kbd>空格</kbd> 播放/暂停，<kbd>Esc</kbd> 关闭本指引 / 退出最大化。</li>
       <li><b>颜色含义</b>：绿色=当前分支路径（流动），橙色虚线=回边/循环，橙色脉冲=当前节点，淡灰=其它已揭示节点。</li>
       <li><b>含环图</b>：遇到回边/环会按简单路径拆分分支并提示，不会卡死。</li>
+      <li><b>导出播放文件</b>：点“⤓ 导出播放文件”生成只含右侧播放界面、已内嵌当前图的独立 HTML，可直接发给他人播放（仍需联网加载渲染库）。</li>
     </ul>
     <div class="close"><button class="ghost" id="helpClose">关闭</button></div>
   </div>
@@ -467,6 +469,49 @@ function setHelp(on){ helpMask.classList.toggle('show', on); }
 $('help').onclick = () => setHelp(true);
 $('helpClose').onclick = () => setHelp(false);
 helpMask.addEventListener('click', e => { if(e.target === helpMask) setHelp(false); });
+
+// 导出“播放文件”：克隆当前右侧播放界面 + 内嵌当前 mermaid 源码，生成一个无左侧输入、打开即自动生成的独立 HTML
+function escHtml(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function exportPlayback(){
+  const src = $('src').value;
+  if(!src.trim()){ alert('请先生成步骤，再导出播放文件'); return; }
+  const styleText = document.querySelector('style').textContent;
+  // 复用当前模块脚本，仅把末尾“载入默认示例”改为“自动生成当前图”
+  const scriptText = document.querySelector('script[type="module"]').textContent
+    .replace(/\n\$\(['"]src['"]\)\.value\s*=\s*SAMPLES\[0\];\s*$/, "\ngenerate();");
+  const rightHtml = document.querySelector('.right').outerHTML;
+  const helpHtml = document.querySelector('.help-mask').outerHTML;
+  const html =
+`<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mermaid 流程图 · 播放文件（已导出）</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"><\/script>
+<style>${styleText}</style>
+</head>
+<body>
+${rightHtml}
+<div class="left" style="display:none">
+  <textarea id="src">${escHtml(src)}</textarea>
+  <select id="samples"><option value="0">0</option></select>
+  <button id="gen">生成步骤并播放</button>
+</div>
+${helpHtml}
+<script type="module">${scriptText}<\/script>
+</body>
+</html>`;
+  const blob = new Blob([html], { type:'text/html;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'mermaid-playback.html';
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(a.href);
+}
+$('export').onclick = exportPlayback;
 
 // 键盘导航：← 上一步 / → 下一步 / 空格 播放暂停 / Esc 退最大化或关指引
 window.addEventListener('keydown', e => {
