@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mermaid 流程图 · 深度优先逐步播放器（mermaid-ast 解析）</title>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<!-- GSAP：仅在原「逐步揭示」逻辑之上叠加“新节点淡入”过渡，不改变任何揭示逻辑 -->
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
 <style>
   :root { --accent:#2563eb; --bg:#f8fafc; --line:#cbd5e1; }
   * { box-sizing: border-box; }
@@ -395,8 +397,34 @@ function applyZoomTo(stage){
 
 // 渲染单个步骤：完整图上高亮分支节点/路径，其余淡灰，并自动跟随当前节点
 async function renderStep(stage, s){
+  const oldSvg = stage.querySelector('svg');   // 挂载前记下上一帧的 SVG，用于判断“当前节点”是否真的新出现
   const { svg } = await window.mermaid.render('m'+(Date.now()), s.mmd + '\n' + buildDirectives(s));
   mount(stage, svg);
+  // 过渡：仅当“当前节点”在上一帧尚未出现（即本次真正新揭示的节点）时，才让它与其相连的新边淡入；
+  // 其余元素瞬间到位，因此任何时刻画板都不会整片空白——不会闪白，也不会对已存在的节点重复闪烁。
+  // 只动 opacity，绝不碰 transform，不会覆盖 mermaid 给节点组的定位。
+  const g = window.gsap;
+  const nid = s.currentId;
+  if(g && nid){
+    const wasThere = oldSvg && oldSvg.querySelector('g.node[id^="flowchart-'+nid+'-"]');
+    if(!wasThere){
+      // 边：仅让“与当前节点相连的新边”淡入（不缩放，避免路径变形）
+      const edgeEls = [];
+      stage.querySelectorAll('.flowchart-link').forEach(p => {
+        const cls = p.getAttribute('class') || '';
+        const ls = (cls.match(/LS-([\w-]+)/) || [])[1];
+        const le = (cls.match(/LE-([\w-]+)/) || [])[1];
+        if(ls === nid || le === nid) edgeEls.push(p);
+      });
+      // 节点：缩放+淡入“弹出”效果；只作用在外层 <g> 内部的图形/文字上，
+      // 绝不碰外层 <g> 的 translate（那是 mermaid 的定位），所以不会位移。
+      const nodeShapes = [];
+      const nodeEl = stage.querySelector('.curNode');
+      if(nodeEl) nodeEl.querySelectorAll('rect, polygon, circle, ellipse, path, text').forEach(sh => nodeShapes.push(sh));
+      if(edgeEls.length) g.from([...edgeEls], { opacity:0, duration:0.6, ease:'power2.inOut', stagger:0.08 });
+      if(nodeShapes.length) g.from([...nodeShapes], { opacity:0, scale:0.6, transformOrigin:'center', duration:0.6, ease:'back.out(1.7)' });
+    }
+  }
   // 边：回边(循环边)用橙色虚线标出；当前分支边用绿色+流动；其余淡灰。回边不沿其遍历，避免死循环。
   const bk = new Set(s.branchEdges.map(([a,b]) => a+'|'+b));
   const ck = new Set([...backEdges].filter(k => { const [a,b] = k.split('|'); return s.revealedNodes.has(a) && s.revealedNodes.has(b); }));
