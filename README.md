@@ -60,6 +60,10 @@ flowchart TD
     K --> L
 ```
 
+##  导出gif效果
+
+![](https://h2cdn.appinn.me/original/3X/1/3/13bfa2ce8fd3419bf8b7ee7da3d1c09a5fc7fe50.gif)
+
 ## 测试
 
 分支提取算法（`findBranches`）有配套自测，覆盖：无标签易重名图、带标签复杂图、三路并行、含回边环图、平行同标签去重、多源+合并+回边大图。
