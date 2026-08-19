@@ -12,6 +12,22 @@
 - **键盘导航**：`←` 上一步、`→` 下一步、`空格` 播放/暂停、`Esc` 退出最大化 / 关闭指引。
 - **操作指引**：内置“操作指引”弹窗，说明全部交互与配色含义。
 
+## 工作流程
+
+```mermaid
+flowchart TD
+    A[粘贴 flowchart/graph 代码] --> B{图类型判断}
+    B -->|非流程图| C[渲染完整图, 不支持逐步揭示]
+    B -->|flowchart| D[parseFlowchart 解析为 AST]
+    D --> E[findBranches 提取分支 + 回边检测]
+    D --> F[buildSteps 深度优先逐步构建]
+    E --> G[选择分支 buildBranch]
+    F --> H[renderStep 逐步高亮渲染]
+    G --> H
+    H --> I[交互: 下一步/上一步/自动播放/键盘]
+    I --> H
+```
+
 ## 用法
 
 直接用浏览器打开 `mermaid-step-player.html` 即可（需联网加载 CDN 资源）：
