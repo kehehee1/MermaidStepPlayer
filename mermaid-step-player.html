@@ -201,6 +201,8 @@ function quoteLabels(mmd){
 }
 
 let STEPS = [], GLOBAL_STEPS = [], BRANCH_STEPS = [], branches = [], branchMode = false, branchPreview = null, step = 0, timer = null, FULL_MMD = '', CUR_FULL = '', zoom = 1, baseW = 0, baseH = 0, cyclic = false, backEdges = new Set();
+// GIF 导出相关状态：放在模块顶层，导出播放文件时剥离 GIF 模块后仍需可用，否则 generate() 里的 FULL_SIZE = null 会因未声明而抛 “FULL_SIZE is not defined”
+let CAP_ID = 0, FULL_SIZE = null;
 
 function dfsOrder(ast){
   const indeg = new Map();
@@ -578,8 +580,6 @@ const CAPTURE_CSS = `
 .dimNode rect,.dimNode polygon,.dimNode circle,.dimNode ellipse,.dimNode path{fill:#eef2f7 !important;stroke:#cbd5e1 !important;stroke-width:1px !important;}
 .curNode rect,.curNode polygon,.curNode circle,.curNode ellipse,.curNode path{stroke:#ef8354 !important;stroke-width:3px !important;}
 `;
-
-let CAP_ID = 0, FULL_SIZE = null;
 
 function loadScript(src){
   return new Promise((res, rej) => {
