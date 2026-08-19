@@ -196,7 +196,7 @@ function quoteLabels(mmd){
   return mmd;
 }
 
-let STEPS = [], GLOBAL_STEPS = [], BRANCH_STEPS = [], branches = [], branchMode = false, branchPreview = null, step = 0, timer = null, FULL_MMD = '', CUR_FULL = '', zoom = 1, baseW = 0, baseH = 0, cyclic = false, backEdges = new Set();
+let STEPS = [], GLOBAL_STEPS = [], BRANCH_STEPS = [], branches = [], branchMode = false, branchPreview = null, step = 0, timer = null, FULL_MMD = '', CUR_FULL = '', zoom = 1, baseW = 0, baseH = 0, cyclic = false, backEdges = new Set(), ALL_NODE_IDS = new Set();
 
 function dfsOrder(ast){
   const indeg = new Map();
@@ -347,6 +347,17 @@ function buildDirectives(s){
   return d;
 }
 
+// GIF 用：始终渲染完整图布局，未揭示节点/边用 hiddenNode/hiddenEdge 隐藏（避免逐步删除导致重排变形）
+function buildGifDirectives(s){
+  let d = '';
+  for(const n of ALL_NODE_IDS){
+    if(s.revealedNodes.has(n)) d += `class ${n} ${s.branchNodes.has(n) ? 'branchNode' : 'dimNode'};\n`;
+    else d += `class ${n} hiddenNode;\n`;
+  }
+  if(!s.noPulse) d += `class ${s.currentId} curNode;\n`;
+  return d;
+}
+
 async function show(i){
   const stage = $('stage');
   // i === -1：总览 / 分支预览（不进入逐步演示）
@@ -445,6 +456,7 @@ async function generate(){
   }
   try {
     const ast = parseFlowchart(code);
+    ALL_NODE_IDS = new Set(ast.nodes.keys());   // 收集全部节点 id，供 GIF 按完整布局隐藏未揭示节点
     FULL_MMD = quoteLabels(renderFlowchart(ast));          // 完整图，供总览/重置使用
     const fb = findBranches(ast);
     branches = fb.branches; cyclic = fb.cyclic; backEdges = fb.backEdges;  // 含环图不再爆栈；backEdges 用于把回边标成循环边
@@ -554,9 +566,10 @@ async function getFullSize(){
   return FULL_SIZE;
 }
 
-// 把某一步渲染成 canvas：按软件内缩放比例 scale 等比重缩放（文字大小恒定），画布固定为完整图尺寸×scale，帧居中放置
+// 把某一步渲染成 canvas：始终渲染【完整图布局】，未揭示节点/边隐藏（位置固定不重排、不变形），
+// 按软件内缩放比例 scale 等比重缩放（文字大小恒定），画布=完整图尺寸×scale
 async function frameToCanvas(s, scale, canvasW, canvasH){
-  const { svg: svgStr } = await window.mermaid.render('cap'+(CAP_ID++), s.mmd + '\n' + buildDirectives(s));
+  const { svg: svgStr } = await window.mermaid.render('cap'+(CAP_ID++), CUR_FULL + '\n' + buildGifDirectives(s));
   const holder = document.createElement('div'); holder.innerHTML = svgStr;
   const svg = holder.querySelector('svg');
   const bk = new Set(s.branchEdges.map(([a,b]) => a+'|'+b));
@@ -567,16 +580,17 @@ async function frameToCanvas(s, scale, canvasW, canvasH){
     const le = (cls.match(/LE-([\w-]+)/) || [])[1];
     if(ls && le){
       const k = ls + '|' + le;
+      if(!s.revealedNodes.has(ls) || !s.revealedNodes.has(le)){ p.style.display = 'none'; return; } // 未揭示的边隐藏
       if(ck.has(k)) p.classList.add('cycle-edge');
       else if(bk.has(k)) p.classList.add('branch-edge');
       else p.classList.add('dim-edge');
-    } else p.classList.add('dim-edge');
+    } else p.style.display = 'none';
   });
-  // 取本帧自然尺寸（mermaid 默认字号固定，故各帧文字绝对大小一致）
+  // 完整图布局，各帧尺寸/位置完全一致，文字大小恒定
   const Nw = parseFloat(svg.getAttribute('width')) || (svg.viewBox && svg.viewBox.baseVal.width) || 600;
   const Nh = parseFloat(svg.getAttribute('height')) || (svg.viewBox && svg.viewBox.baseVal.height) || 400;
   const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-  styleEl.textContent = CAPTURE_CSS;
+  styleEl.textContent = CAPTURE_CSS + '\n.hiddenNode{display:none !important;}';   // 隐藏未揭示节点
   svg.insertBefore(styleEl, svg.firstChild);
   const xml = new XMLSerializer().serializeToString(svg);
   const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
@@ -587,9 +601,7 @@ async function frameToCanvas(s, scale, canvasW, canvasH){
   canvas.width = canvasW; canvas.height = canvasH;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-  const dw = Nw * scale, dh = Nh * scale;          // 等比重缩放，文字大小恒定
-  const dx = Math.max(0, (canvasW - dw) / 2), dy = Math.max(0, (canvasH - dh) / 2);
-  ctx.drawImage(img, dx, dy, dw, dh);
+  ctx.drawImage(img, 0, 0, Nw * scale, Nh * scale);   // 等比重缩放铺满画布，文字大小恒定
   return canvas;
 }
 
