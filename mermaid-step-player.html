@@ -515,28 +515,12 @@ function exportPlayback(){
   const src = $('src').value;
   if(!src.trim()){ alert('请先生成步骤，再导出播放文件'); return; }
   const styleText = document.querySelector('style').textContent;
-  // 复用当前模块脚本，仅把末尾“载入默认示例”改为“自动生成当前图”
+  // 复用当前模块脚本，仅把末尾“载入默认示例”改为“自动生成当前图”；保留全部功能（GIF 导出、过渡效果、导出按钮等），与软件完全一致
   const scriptText = document.querySelector('script[type="module"]').textContent
-    .replace(/\n\$\(['"]src['"]\)\.value\s*=\s*SAMPLES\[0];\s*$/, "\ngenerate();")
-    // 播放文件不需要导出能力：摘掉整个 GIF 导出模块（含内联的 gif worker base64）与导出按钮绑定
-    .replace(/\/\/ ===== 导出“GIF 动图”[\s\S]*?\$\('export'\)\.onclick[\s\S]*?\r?\n\};\r?\n/, '');
+    .replace(/\n\$\(['"]src['"]\)\.value\s*=\s*SAMPLES\[0];\s*$/, "\ngenerate();");
+  // 方案 B：与软件完全一致，只隐藏左侧 mermaid 编辑面板；不剥离任何控件 / GIF 模块 / 导出能力
   const rightHtml = document.querySelector('.right').outerHTML;
-  // 播放文件不需要导出控件：从克隆的播放界面里摘掉“导出播放文件”按钮、格式/缩放/过渡帧等导出专属控件
-  const _tmp = document.createElement('div');
-  _tmp.innerHTML = rightHtml;
-  const _ctrl = _tmp.querySelector('.controls');
-  if(_ctrl){
-    _ctrl.querySelector('#export')?.remove();
-    _ctrl.querySelector('#exportFmt')?.remove();
-    _ctrl.querySelector('#gifScale')?.remove();
-    _ctrl.querySelector('#gifTrans')?.remove();
-    _ctrl.querySelectorAll('label').forEach(l => {
-      const _t = l.textContent || '';
-      if(_t.includes('格式') || _t.includes('导出缩放') || _t.includes('过渡帧')) l.remove();
-    });
-    _ctrl.childNodes.forEach(n => { if(n.nodeType === 3 && (n.textContent || '').trim() === '×') n.remove(); });
-  }
-  const slimRight = _tmp.innerHTML;
+  const slimRight = rightHtml;
   const helpHtml = document.querySelector('.help-mask').outerHTML;
   const html =
 `<!DOCTYPE html>
@@ -546,6 +530,7 @@ function exportPlayback(){
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mermaid 流程图 · 播放文件（已导出）</title>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"><\/script>
 <style>${styleText}</style>
 </head>
 <body>
