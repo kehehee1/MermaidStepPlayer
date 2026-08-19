@@ -487,8 +487,26 @@ function exportPlayback(){
   const styleText = document.querySelector('style').textContent;
   // 复用当前模块脚本，仅把末尾“载入默认示例”改为“自动生成当前图”
   const scriptText = document.querySelector('script[type="module"]').textContent
-    .replace(/\n\$\(['"]src['"]\)\.value\s*=\s*SAMPLES\[0\];\s*$/, "\ngenerate();");
+    .replace(/\n\$\(['"]src['"]\)\.value\s*=\s*SAMPLES\[0];\s*$/, "\ngenerate();")
+    // 播放文件不需要导出能力：摘掉整个 GIF 导出模块（含内联的 gif worker base64）与导出按钮绑定
+    .replace(/\/\/ ===== 导出“GIF 动图”[\s\S]*?\$\('export'\)\.onclick[\s\S]*?\r?\n\};\r?\n/, '');
   const rightHtml = document.querySelector('.right').outerHTML;
+  // 播放文件不需要导出控件：从克隆的播放界面里摘掉“导出播放文件”按钮、格式/缩放/过渡帧等导出专属控件
+  const _tmp = document.createElement('div');
+  _tmp.innerHTML = rightHtml;
+  const _ctrl = _tmp.querySelector('.controls');
+  if(_ctrl){
+    _ctrl.querySelector('#export')?.remove();
+    _ctrl.querySelector('#exportFmt')?.remove();
+    _ctrl.querySelector('#gifScale')?.remove();
+    _ctrl.querySelector('#gifTrans')?.remove();
+    _ctrl.querySelectorAll('label').forEach(l => {
+      const _t = l.textContent || '';
+      if(_t.includes('格式') || _t.includes('导出缩放') || _t.includes('过渡帧')) l.remove();
+    });
+    _ctrl.childNodes.forEach(n => { if(n.nodeType === 3 && (n.textContent || '').trim() === '×') n.remove(); });
+  }
+  const slimRight = _tmp.innerHTML;
   const helpHtml = document.querySelector('.help-mask').outerHTML;
   const html =
 `<!DOCTYPE html>
@@ -501,7 +519,7 @@ function exportPlayback(){
 <style>${styleText}</style>
 </head>
 <body>
-${rightHtml}
+${slimRight}
 <div class="left" style="display:none">
   <textarea id="src">${escHtml(src)}</textarea>
   <select id="samples"><option value="0">0</option></select>
