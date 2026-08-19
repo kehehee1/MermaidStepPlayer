@@ -555,7 +555,7 @@ async function getFullSize(){
 }
 
 // 把某一步渲染成 canvas（统一画布尺寸、居中铺满）
-async function frameToCanvas(s, full){
+async function frameToCanvas(s, W, H){
   const { svg: svgStr } = await window.mermaid.render('cap'+(CAP_ID++), s.mmd + '\n' + buildDirectives(s));
   const holder = document.createElement('div'); holder.innerHTML = svgStr;
   const svg = holder.querySelector('svg');
@@ -573,9 +573,9 @@ async function frameToCanvas(s, full){
     } else p.classList.add('dim-edge');
   });
   // 统一画布尺寸并居中铺满，避免不同步的布局导致画面跳动
-  svg.setAttribute('width', full.w); svg.setAttribute('height', full.h);
+  svg.setAttribute('width', W); svg.setAttribute('height', H);
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-  svg.style.maxWidth = 'none'; svg.style.width = full.w + 'px'; svg.style.height = full.h + 'px'; svg.style.background = '#ffffff';
+  svg.style.maxWidth = 'none'; svg.style.width = W + 'px'; svg.style.height = H + 'px'; svg.style.background = '#ffffff';
   const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style');
   styleEl.textContent = CAPTURE_CSS;
   svg.insertBefore(styleEl, svg.firstChild);
@@ -585,10 +585,10 @@ async function frameToCanvas(s, full){
     const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('SVG 转图片失败')); im.src = url;
   });
   const canvas = document.createElement('canvas');
-  canvas.width = full.w; canvas.height = full.h;
+  canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(img, 0, 0, full.w, full.h);
+  ctx.drawImage(img, 0, 0, W, H);
   return canvas;
 }
 
@@ -599,10 +599,17 @@ async function exportGif(){
   try {
     await loadScript(GIF_LIB);
     const full = await getFullSize();
+    // 放大输出，保证文字清晰：较长边放大到 TARGET_LONG，但单边长不超过 MAX_SIDE
+    const TARGET_LONG = 1500, MAX_SIDE = 2800;
+    let gscale = TARGET_LONG / Math.max(full.w, full.h);
+    if(gscale < 1) gscale = 1;
+    const maxScale = Math.min(MAX_SIDE / full.w, MAX_SIDE / full.h);
+    if(gscale > maxScale) gscale = maxScale;
+    const W = Math.round(full.w * gscale), H = Math.round(full.h * gscale);
     const workerUrl = URL.createObjectURL(new Blob([atob(GIF_WORKER_B64)], { type: 'application/javascript' }));
-    const gif = new GIF({ workers: 2, quality: 10, workerScript: workerUrl, width: full.w, height: full.h, background: '#ffffff' });
+    const gif = new GIF({ workers: 2, quality: 10, workerScript: workerUrl, width: W, height: H, background: '#ffffff' });
     for(let i = 0; i < STEPS.length; i++){
-      const canvas = await frameToCanvas(STEPS[i], full);
+      const canvas = await frameToCanvas(STEPS[i], W, H);
       gif.addFrame(canvas, { delay: GIF_FRAME_DELAY, copy: true });
     }
     gif.on('finished', blob => {
