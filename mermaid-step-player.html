@@ -11,13 +11,13 @@
   :root { --accent:#2563eb; --bg:#f8fafc; --line:#cbd5e1; }
   * { box-sizing: border-box; }
   body { margin:0; font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;
-          background:var(--bg); color:#1e293b; }
+          background:var(--bg); color:#1e293b; overflow-x:hidden; }   /* 页面不出现水平滚动条，画板内自行滚动 */
   header { padding:16px 24px; background:#fff; border-bottom:1px solid var(--line); }
   header h1 { margin:0; font-size:18px; }
   header p { margin:4px 0 0; font-size:13px; color:#64748b; }
   .wrap { display:flex; gap:16px; padding:16px 24px; flex-wrap:wrap; }
-  .left { width:380px; min-width:300px; flex:1 1 320px; }
-  .right { flex:2 1 480px; }
+  .left { width:380px; min-width:300px; flex:1 1 320px; min-width:0; }
+  .right { flex:2 1 480px; min-width:0; }   /* min-width:0 允许收缩，画板不撑宽页面 */
   textarea { width:100%; height:240px; font-family:Consolas,Menlo,monospace; font-size:13px;
              padding:10px; border:1px solid var(--line); border-radius:8px; resize:vertical; }
   .row { display:flex; gap:8px; align-items:center; margin:10px 0; flex-wrap:wrap; }
@@ -27,7 +27,8 @@
   button:disabled { opacity:.45; cursor:not-allowed; }
     .stage { background:#fff; border:1px solid var(--line); border-radius:8px; padding:24px;
               min-height:440px; display:flex; overflow:auto; cursor:grab;
-              align-items: safe center; justify-content: safe center; }
+              align-items: safe center; justify-content: safe center;
+              width:100%; min-width:0; max-width:100%; }   /* 宽度不超容器：宽图在画板内滚动，而非撑宽页面 */
     .stage.grabbing { cursor:grabbing; user-select:none; }   /* 左键拖拽平移视口中 */
     .stage.selmode { cursor:default; }                       /* 选择工具：不平移，可点选节点 */
     /* SVG 按设定缩放比固定宽高，不随容器伸缩；flex:0 0 auto 防止在弹性容器里被压缩，
