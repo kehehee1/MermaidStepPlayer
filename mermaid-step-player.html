@@ -26,12 +26,14 @@
   button.ghost { background:#fff; color:var(--accent); }
   button:disabled { opacity:.45; cursor:not-allowed; }
    .stage { background:#fff; border:1px solid var(--line); border-radius:8px; padding:24px;
-            min-height:440px; display:flex; overflow:auto; }
-   .stage svg { max-width:100%; height:auto; margin:auto; }
-   /* 最大化：动画区铺满视口，Esc 退出 */
-   .stage.max { position:fixed; inset:0; z-index:9999; width:100vw; height:100vh;
-                border-radius:0; padding:32px; border:none; }
-   .stage.max svg { max-width:100%; height:auto; }
+             min-height:440px; display:flex; overflow:auto; }
+    /* SVG 按设定缩放比固定宽高，不随容器伸缩；flex:0 0 auto 防止在弹性容器里被压缩，
+       overflow:auto 提供滚动条，从而最大化前后尺寸/比例完全一致（不再水平压缩） */
+    .stage svg { max-width:none; height:auto; margin:auto; flex:0 0 auto; }
+    /* 最大化：动画区铺满视口，Esc 退出 */
+    .stage.max { position:fixed; inset:0; z-index:9999; width:100vw; height:100vh;
+                 border-radius:0; padding:32px; border:none; }
+    .stage.max svg { max-width:none; height:auto; }
    /* 最大化时：控制栏浮到最上层，保证仍可操作 */
    body.maxmode .controls { position:fixed; top:0; left:0; right:0; z-index:10000;
                             background:#fff; padding:10px 24px; box-shadow:0 2px 8px rgba(0,0,0,.12); }
@@ -527,7 +529,7 @@ $('reset').onclick = ()=>{ stopPlay(); branchMode=false; branchPreview=null; $('
 $('play').onclick = togglePlay;
 $('samples').onchange = e => { $('src').value = SAMPLES[+e.target.value]; };
 
-function setMax(on){ const st = $('stage'); st.classList.toggle('max', on); document.body.classList.toggle('maxmode', on); $('max').textContent = on ? '⛓ 退出最大化' : '⛶ 最大化'; }
+function setMax(on){ const st = $('stage'); st.classList.toggle('max', on); document.body.classList.toggle('maxmode', on); $('max').textContent = on ? '⛓ 退出最大化' : '⛶ 最大化'; applyZoomTo(st); }
 $('max').onclick = () => setMax(!$('stage').classList.contains('max'));
 
 // 操作指引弹窗
