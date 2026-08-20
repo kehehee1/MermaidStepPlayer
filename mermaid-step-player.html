@@ -855,16 +855,18 @@ let panMode = true;
     st.scrollTop  = stp - (e.clientY - py);
   });
   window.addEventListener('mouseup', () => { dragging = false; st.classList.remove('grabbing'); });
-  // 选择工具：点击画布节点 → 跳到该节点所在步骤并激活
-  st.addEventListener('click', e => {
-    if(panMode) return;
+  // 点击画布节点 → 跳到该节点所在步骤并激活（同步底部节点列表）。选择工具下生效
+  st.addEventListener('click', e => { if(panMode) return; activateNodeFromEvent(e); });
+  // 双击画布节点：任意工具下都激活并同步底部节点列表（不受平移工具影响）
+  st.addEventListener('dblclick', e => { activateNodeFromEvent(e); });
+  function activateNodeFromEvent(e){
     const g = e.target.closest && e.target.closest('.node');
     if(!g || !g.id) return;
     const m = g.id.match(/^flowchart-(.+)-(\d+)$/);
     if(!m) return;
     const idx = STEPS.findIndex(s => s.currentId === m[1]);
-    if(idx >= 0){ stopPlay(); show(idx); }
-  });
+    if(idx >= 0){ stopPlay(); step = idx; show(idx); }   // 关键：同步 step，否则底部链表高亮不跟随
+  }
 })();
 $('tool').onclick = () => {                          // 切换 拖动 / 选择 工具
   panMode = !panMode;
