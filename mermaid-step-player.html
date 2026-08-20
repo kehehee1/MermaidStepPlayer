@@ -208,7 +208,14 @@ function dfsOrder(ast){
   const indeg = new Map();
   for(const id of ast.nodes.keys()) indeg.set(id, 0);
   for(const l of ast.links) indeg.set(l.target, (indeg.get(l.target)||0)+1);
-  const root = [...indeg.entries()].find(([,d])=>d===0)?.[0] ?? [...ast.nodes.keys()][0];
+  // 选根：优先选“非子图内部节点”的入度为 0 节点。parser 会把子图内部节点排在容器之前，
+  // 若直接选第一个入度为 0 的节点，可能选中子图内部节点（如 A1），导致子图容器(S1)不被进入、
+  // 其内部节点全部丢失 parent，历史节点无法保持高亮。
+  const internalNodes = new Set();
+  if(Array.isArray(ast.subgraphs)) for(const sg of ast.subgraphs) for(const n of sg.nodes) internalNodes.add(n);
+  const root = [...indeg.entries()].find(([id,d])=>d===0 && !internalNodes.has(id))?.[0]
+             ?? [...indeg.entries()].find(([,d])=>d===0)?.[0]
+             ?? [...ast.nodes.keys()][0];
   const adj = new Map();
   for(const id of ast.nodes.keys()) adj.set(id, []);
   ast.links.forEach((l,i)=> adj.get(l.source).push(i));
@@ -243,7 +250,7 @@ function dfsOrder(ast){
   }
   dfsFrom(root, null);
   for(const id of ast.nodes.keys()) if(!visited.has(id)) order.push(id);
-  return { order, parent };
+  return { order, parent, subChildren };
 }
 
 // 按边在 mermaid 文本中的出现顺序，给每条边编号（linkStyle 需要序号）
@@ -257,26 +264,28 @@ function edgeIndices(mmd){
 }
 
 function buildSteps(ast, fullMmd){
-  const { order, parent } = dfsOrder(ast);
+  const { order, parent, subChildren } = dfsOrder(ast);
   const steps = [];
   const revealed = new Set();
   const allNodes = new Set(ast.nodes.keys());
   for(const id of order){
     revealed.add(id);
-    // 全图（深度优先）模式：每一步都渲染完整图，仅用 class 高亮当前 DFS 路径/当前节点，
-    // 布局与“全图预览”完全一致，不再因删节点导致逐步重排跳动（与独立分支模式同效）。
+    // 当前分支 = 树路径(当前节点→根) + 路径上每个子图容器已揭示的内部节点（上游子图历史保持高亮，
+    // 但不强制造未访问节点）+ 下游延伸(合并点之后已揭示节点)。这样：线性主线上游历史保持高亮；
+    // 跳到另一分支时，非当前分支节点（含其所在子图）恢复淡灰，仅高亮当前分支。
     const branchNodes = new Set();
     let cur = id; while(cur !== undefined){ branchNodes.add(cur); cur = parent.get(cur); }
-    const branchEdges = [];
-    cur = id; while(parent.get(cur) !== undefined){ branchEdges.push([parent.get(cur), cur]); cur = parent.get(cur); }
+    for(const c of branchNodes) if(subChildren.has(c)) for(const n of subChildren.get(c)) if(revealed.has(n)) branchNodes.add(n);
     (function extendDown(u){
       for(const l of ast.links){
         if(l.source === u && revealed.has(l.target) && !branchNodes.has(l.target)){
-          branchEdges.push([l.source, l.target]); branchNodes.add(l.target);
+          branchNodes.add(l.target);
           extendDown(l.target);
         }
       }
     })(id);
+    const branchEdges = [];
+    for(const l of ast.links) if(branchNodes.has(l.source) && branchNodes.has(l.target)) branchEdges.push([l.source, l.target]);
     steps.push({ mmd: fullMmd, currentId:id, branchNodes, branchEdges, revealedNodes:new Set(revealed), allNodes });
   }
   return steps;
