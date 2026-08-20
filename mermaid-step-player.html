@@ -29,6 +29,7 @@
               min-height:440px; display:flex; overflow:auto; cursor:grab;
               align-items: safe center; justify-content: safe center; }
     .stage.grabbing { cursor:grabbing; user-select:none; }   /* 左键拖拽平移视口中 */
+    .stage.selmode { cursor:default; }                       /* 选择工具：不平移，可点选节点 */
     /* SVG 按设定缩放比固定宽高，不随容器伸缩；flex:0 0 auto 防止在弹性容器里被压缩，
        overflow:auto 提供滚动条，从而最大化前后尺寸/比例完全一致（不再水平压缩）。
        居中用容器 safe center：内容超出视口时回退到顶端对齐，保证顶部不被裁切、可滚动到。 */
@@ -128,6 +129,7 @@
       <button class="ghost" id="play">自动播放</button>
       <button class="ghost" id="reset">重置</button>
       <button class="ghost" id="max">⛶ 最大化</button>
+      <button class="ghost on" id="tool" title="切换画布工具：拖动视图 / 选择节点">✋ 拖动视图</button>
       <button class="ghost" id="help">❔ 操作指引</button>
       <button class="ghost" id="export">⤓ 导出播放文件</button>
       <label style="font-size:14px;margin-left:8px;">格式：</label>
@@ -158,6 +160,7 @@
       <li><b>分支演示</b>：右侧“分支”下拉框选某条分支（源→汇的简单路径），整条分支绿色高亮并逐步演示；选“全部（深度优先）”回到总览。</li>
       <li><b>缩放</b>：拖动“缩放”滑条或手动输入百分比，也可在滑条/输入框上滚轮缩放。</li>
       <li><b>最大化</b>：点“⛶ 最大化”铺满画板，按 <kbd>Esc</kbd> 退出。</li>
+      <li><b>画布工具</b>：点“✋ 拖动视图 / ⚲ 选择节点”切换。拖动工具下左键按住拖动画板平移视口；选择工具下左键拖拽不再平移，点击画布上的节点即可跳到该节点并激活。</li>
       <li><b>键盘快捷键</b>：<kbd>←</kbd> 上一步，<kbd>→</kbd> 下一步，<kbd>空格</kbd> 播放/暂停，<kbd>Esc</kbd> 关闭本指引 / 退出最大化。</li>
       <li><b>颜色含义</b>：绿色=当前分支路径（流动），橙色虚线=回边/循环，橙色脉冲=当前节点，淡灰=其它已揭示节点。</li>
       <li><b>含环图</b>：遇到回边/环会按简单路径拆分分支并提示，不会卡死。</li>
@@ -835,12 +838,13 @@ $('zoomVal').onchange = e => setZoom(+e.target.value || 100);
 // 滚轮缩放仅作用于缩放控件（滑块/输入框），画板内滚轮恢复为正常滚动/平移
 $('zoom').addEventListener('wheel', e => { e.preventDefault(); setZoom(zoom * 100 * (e.deltaY < 0 ? 1.1 : 0.9)); }, { passive:false });
 $('zoomVal').addEventListener('wheel', e => { e.preventDefault(); setZoom(zoom * 100 * (e.deltaY < 0 ? 1.1 : 0.9)); }, { passive:false });
-// 左键按住画板拖动平移视口（沿用 overflow 滚动条机制，拖动即改 scrollLeft/Top）
+// 画布工具：panMode=true 左键拖拽平移视口；false 为选择工具，点节点即激活跳转
+let panMode = true;
 (function enablePan(){
   const st = $('stage');
   let dragging = false, px = 0, py = 0, sl = 0, stp = 0;
   st.addEventListener('mousedown', e => {
-    if(e.button !== 0) return;                       // 仅左键
+    if(e.button !== 0 || !panMode) return;            // 仅左键 + 拖动工具
     dragging = true; px = e.clientX; py = e.clientY; sl = st.scrollLeft; stp = st.scrollTop;
     st.classList.add('grabbing');
     e.preventDefault();                              // 避免选中文本/触发原生拖拽
@@ -851,7 +855,23 @@ $('zoomVal').addEventListener('wheel', e => { e.preventDefault(); setZoom(zoom *
     st.scrollTop  = stp - (e.clientY - py);
   });
   window.addEventListener('mouseup', () => { dragging = false; st.classList.remove('grabbing'); });
+  // 选择工具：点击画布节点 → 跳到该节点所在步骤并激活
+  st.addEventListener('click', e => {
+    if(panMode) return;
+    const g = e.target.closest && e.target.closest('.node');
+    if(!g || !g.id) return;
+    const m = g.id.match(/^flowchart-(.+)-(\d+)$/);
+    if(!m) return;
+    const idx = STEPS.findIndex(s => s.currentId === m[1]);
+    if(idx >= 0){ stopPlay(); show(idx); }
+  });
 })();
+$('tool').onclick = () => {                          // 切换 拖动 / 选择 工具
+  panMode = !panMode;
+  $('stage').classList.toggle('selmode', !panMode);
+  $('tool').classList.toggle('on', panMode);
+  $('tool').textContent = panMode ? '✋ 拖动视图' : '⚲ 选择节点';
+};
 function populateBranchSelect(){
   const sel = $('branches');
   sel.innerHTML = '<option value="">全部（深度优先）</option>';
