@@ -40,6 +40,21 @@
    body.maxmode .controls { position:fixed; top:0; left:0; right:0; z-index:10000;
                             background:#fff; padding:10px 24px; box-shadow:0 2px 8px rgba(0,0,0,.12); }
    body.maxmode .stage.max { padding-top:72px; }
+   /* 底部节点链表：用 > 连接，超长文本省略号截断；最大化时固定在视口底部 */
+   .chain { display:flex; align-items:center; gap:0; overflow-x:auto; overflow-y:hidden;
+            background:#fff; border:1px solid var(--line); border-radius:8px;
+            padding:8px 12px; margin-top:12px; min-height:38px; max-height:38px; font-size:13px; }
+   .chain::-webkit-scrollbar { height:8px; }
+   .chain::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
+   .chain .chip { flex:0 0 auto; max-width:160px; padding:4px 10px; border:1px solid var(--line);
+                  border-radius:999px; background:#f1f5f9; color:#334155; cursor:pointer;
+                  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+   .chain .chip:hover { background:#e2e8f0; }
+   .chain .chip.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+   .chain .sep { flex:0 0 auto; color:#94a3b8; margin:0 6px; user-select:none; }
+   body.maxmode .chain { position:fixed; left:0; right:0; bottom:0; z-index:10000;
+                         margin-top:0; border-radius:0; border-left:none; border-right:none; border-bottom:none; }
+   body.maxmode .stage.max { padding-bottom:56px; }
   /* 当前分支：统一绿色；非分支：统一淡灰。仅两色，逻辑清晰。 */
   .branchNode rect, .branchNode polygon, .branchNode circle,
   .branchNode ellipse, .branchNode path {
@@ -129,6 +144,7 @@
       <span class="progress" id="progress"></span>
     </div>
     <div class="stage" id="stage"><em style="color:#94a3b8">请先生成步骤</em></div>
+    <div class="chain" id="chain"></div>
   </div>
 </div>
 
@@ -205,6 +221,8 @@ function quoteLabels(mmd){
 }
 
 let STEPS = [], GLOBAL_STEPS = [], BRANCH_STEPS = [], branches = [], branchMode = false, branchPreview = null, step = 0, timer = null, FULL_MMD = '', CUR_FULL = '', zoom = 1, baseW = 0, baseH = 0, cyclic = false, backEdges = new Set();
+// 底部节点链表用：节点实际文本（mermaid 标签）、当前选中的分支索引
+let NODE_TEXT = new Map(), selBranch = -1;
 // GIF 导出相关状态：放在模块顶层，导出播放文件时剥离 GIF 模块后仍需可用，否则 generate() 里的 FULL_SIZE = null 会因未声明而抛 “FULL_SIZE is not defined”
 let CAP_ID = 0, FULL_SIZE = null;
 
@@ -391,6 +409,7 @@ async function show(i){
     }
     $('prev').disabled = true;
     $('next').disabled = STEPS.length === 0;
+    updateChainActive();
     return;
   }
   const s = STEPS[i];
@@ -398,7 +417,55 @@ async function show(i){
   $('progress').textContent = `步骤 ${i+1}/${STEPS.length}（当前：${s.currentId}）`;
   $('prev').disabled = i === 0;
   $('next').disabled = i === STEPS.length-1;
+  updateChainActive();
 }
+
+// 底部节点链表：全部模式显示全部节点（深度优先顺序），分支模式显示该分支路径；节点用 > 连接，
+// 超长文本用 CSS 省略号(...)截断；点击节点跳到图上对应节点并激活；鼠标在其上滚动可横向滚动。
+function renderChain(){
+  const el = $('chain'); if(!el) return;
+  const ids = (branchMode && selBranch >= 0 && BRANCH_STEPS[selBranch])
+              ? branches[selBranch].path.slice()
+              : GLOBAL_STEPS.map(s => s.currentId);
+  el.innerHTML = '';
+  ids.forEach((id, i) => {
+    if(i > 0){ const sep = document.createElement('span'); sep.className = 'sep'; sep.textContent = '>'; el.appendChild(sep); }
+    const chip = document.createElement('span');
+    chip.className = 'chip'; chip.dataset.id = id;
+    chip.textContent = NODE_TEXT.get(id) || id;
+    chip.title = NODE_TEXT.get(id) || id;     // 完整文本悬停可见
+    el.appendChild(chip);
+  });
+  updateChainActive();
+}
+// 高亮当前步对应的节点芯片，并保持其在横向可视区内
+function updateChainActive(){
+  const el = $('chain'); if(!el) return;
+  const cur = (step >= 0 && STEPS[step]) ? STEPS[step].currentId : null;
+  el.querySelectorAll('.chip').forEach(c => {
+    const on = c.dataset.id === cur;
+    c.classList.toggle('active', on);
+    if(on){
+      const sl = el.scrollLeft, left = c.offsetLeft, right = left + c.offsetWidth;
+      if(left < sl) el.scrollLeft = Math.max(0, left - 8);
+      else if(right > sl + el.clientWidth) el.scrollLeft = right - el.clientWidth + 8;
+    }
+  });
+}
+$('chain').addEventListener('click', e => {
+  const chip = e.target.closest('.chip'); if(!chip) return;
+  const id = chip.dataset.id;
+  const idx = STEPS.findIndex(s => s.currentId === id);
+  if(idx >= 0){ stopPlay(); step = idx; show(step); }   // 跳到该节点并激活（成为当前节点）
+});
+// 鼠标在链上滚动 → 横向滚动（仅当内容超出宽度时拦截，避免误吞页面滚动）
+$('chain').addEventListener('wheel', e => {
+  const el = $('chain');
+  if(el.scrollWidth > el.clientWidth){
+    el.scrollLeft += (e.deltaY !== 0 ? e.deltaY : e.deltaX);
+    e.preventDefault();
+  }
+}, { passive:false });
 
 // 挂载 SVG 并记录基准尺寸，再按当前缩放比应用
 function mount(stage, svgStr){
@@ -511,6 +578,12 @@ async function generate(){
   }
   try {
     const ast = parseFlowchart(code);
+    NODE_TEXT = new Map();                                 // 节点 id → mermaid 实际标签文本
+    for(const [id,n] of ast.nodes) NODE_TEXT.set(id, (n.text && n.text.text != null) ? String(n.text.text) : id);
+    if(Array.isArray(ast.subgraphs)) for(const sg of ast.subgraphs){   // 子图容器不在 ast.nodes，标题在 sg.title
+      const t = sg.title && (sg.title.text != null ? sg.title.text : sg.title);
+      NODE_TEXT.set(sg.id, t != null ? String(t) : sg.id);
+    }
     FULL_MMD = quoteLabels(renderFlowchart(ast));          // 完整图，供总览/重置使用
     const fb = findBranches(ast);
     branches = fb.branches; cyclic = fb.cyclic; backEdges = fb.backEdges;  // 含环图不再爆栈；backEdges 用于把回边标成循环边
@@ -518,6 +591,7 @@ async function generate(){
     BRANCH_STEPS = branches.map(b => buildBranch(ast, b, FULL_MMD));
     populateBranchSelect();
     CUR_FULL = FULL_MMD; STEPS = GLOBAL_STEPS; FULL_SIZE = null;   // 新图：清掉上一张图的尺寸缓存
+    selBranch = -1; renderChain();                         // 重置选中分支并渲染底部节点链表
     step = -1; await show(-1);                              // 先显示完整流程图
   } catch(e){
     $('stage').innerHTML = '<div class="err">解析失败：'+e.message+'</div>';
@@ -527,7 +601,7 @@ async function generate(){
 $('gen').onclick = generate;
 $('next').onclick = ()=>{ stopPlay(); step = step === -1 ? 0 : (step < STEPS.length-1 ? step+1 : step); show(step); };
 $('prev').onclick = ()=>{ stopPlay(); step = step > 0 ? step-1 : -1; show(step); };
-$('reset').onclick = ()=>{ stopPlay(); branchMode=false; branchPreview=null; $('branches').value=''; STEPS = GLOBAL_STEPS; CUR_FULL = FULL_MMD; step=-1; show(-1); };
+$('reset').onclick = ()=>{ stopPlay(); branchMode=false; branchPreview=null; selBranch=-1; $('branches').value=''; STEPS = GLOBAL_STEPS; CUR_FULL = FULL_MMD; step=-1; renderChain(); show(-1); };
 $('play').onclick = togglePlay;
 $('samples').onchange = e => { $('src').value = SAMPLES[+e.target.value]; };
 
@@ -774,8 +848,10 @@ function populateBranchSelect(){
 $('branches').onchange = e => {
   stopPlay();
   const v = e.target.value;
-  if(v === ''){ branchMode = false; branchPreview = null; STEPS = GLOBAL_STEPS; CUR_FULL = FULL_MMD; step = -1; show(-1); }
-  else { branchMode = true; const br = BRANCH_STEPS[+v]; branchPreview = br.preview; STEPS = br.steps; CUR_FULL = FULL_MMD; step = -1; show(-1); } // 切换即整条分支高亮预览
+  selBranch = (v === '' ? -1 : +v);
+  if(v === ''){ branchMode = false; branchPreview = null; STEPS = GLOBAL_STEPS; CUR_FULL = FULL_MMD; step = -1; }
+  else { branchMode = true; const br = BRANCH_STEPS[selBranch]; branchPreview = br.preview; STEPS = br.steps; CUR_FULL = FULL_MMD; step = -1; } // 切换即整条分支高亮预览
+  renderChain(); show(-1);
 };
 
 $('src').value = SAMPLES[0];
