@@ -212,16 +212,28 @@ function dfsOrder(ast){
   const adj = new Map();
   for(const id of ast.nodes.keys()) adj.set(id, []);
   ast.links.forEach((l,i)=> adj.get(l.source).push(i));
-  // 子图容器 -> 子节点集合，揭示容器后立即按内部边 DFS 其子节点
+  // 子图容器 -> 内部节点集合（用于 allowed 限制，不越界）；子图入口节点按“内部入度为 0”推导，
+  // 而非直接遍历 parser 给的 sg.nodes（其顺序可能被打乱，如 [B,A,C] 导致执行顺序错乱）。
   const subChildren = new Map();
+  const subEntry = new Map();
+  const nodeOrder = [...ast.nodes.keys()];
   if(Array.isArray(ast.subgraphs)) for(const sg of ast.subgraphs){
-    if(sg.id) subChildren.set(sg.id, new Set(sg.nodes));
+    if(!sg.id) continue;
+    const nodes = [...new Set(sg.nodes)];
+    subChildren.set(sg.id, new Set(nodes));
+    const inSet = new Set(nodes);
+    const indegIn = new Map(); nodes.forEach(n => indegIn.set(n, 0));
+    for(const l of ast.links) if(inSet.has(l.source) && inSet.has(l.target))
+      indegIn.set(l.target, (indegIn.get(l.target) || 0) + 1);
+    const byDecl = (a, b) => nodeOrder.indexOf(a) - nodeOrder.indexOf(b);
+    const entries = nodes.filter(n => indegIn.get(n) === 0).sort(byDecl);
+    subEntry.set(sg.id, entries.length ? entries : nodes.slice().sort(byDecl));
   }
   const visited = new Set(), order = [], parent = new Map();
   function dfsFrom(u, allowed){
     if(visited.has(u)) return;
     visited.add(u); order.push(u);
-    if(subChildren.has(u)) for(const c of subChildren.get(u)) if(!visited.has(c)){ parent.set(c,u); dfsFrom(c, subChildren.get(u)); }
+    if(subChildren.has(u)) for(const c of subEntry.get(u)) if(!visited.has(c)){ parent.set(c,u); dfsFrom(c, subChildren.get(u)); }
     for(const ei of adj.get(u)){
       const v = ast.links[ei].target;
       if(visited.has(v)) continue;
@@ -244,31 +256,28 @@ function edgeIndices(mmd){
   return out;
 }
 
-function buildSteps(ast){
+function buildSteps(ast, fullMmd){
   const { order, parent } = dfsOrder(ast);
   const steps = [];
   const revealed = new Set();
+  const allNodes = new Set(ast.nodes.keys());
   for(const id of order){
     revealed.add(id);
-    const sub = structuredClone(ast);
-    for(const nid of [...sub.nodes.keys()]) if(!revealed.has(nid)) sub.nodes.delete(nid);
-    sub.links = sub.links.filter(l => revealed.has(l.source) && revealed.has(l.target));
-    const mmd = quoteLabels(renderFlowchart(sub));
-    // 当前分支 = 从根到当前节点的 DFS 路径
+    // 全图（深度优先）模式：每一步都渲染完整图，仅用 class 高亮当前 DFS 路径/当前节点，
+    // 布局与“全图预览”完全一致，不再因删节点导致逐步重排跳动（与独立分支模式同效）。
     const branchNodes = new Set();
     let cur = id; while(cur !== undefined){ branchNodes.add(cur); cur = parent.get(cur); }
     const branchEdges = [];
     cur = id; while(parent.get(cur) !== undefined){ branchEdges.push([parent.get(cur), cur]); cur = parent.get(cur); }
-    // 延伸下游：从当前节点沿“已揭示”的边继续，打通合并点之后的完整路径（不止一跳，走到尽头）
     (function extendDown(u){
-      for(const l of sub.links){
+      for(const l of ast.links){
         if(l.source === u && revealed.has(l.target) && !branchNodes.has(l.target)){
           branchEdges.push([l.source, l.target]); branchNodes.add(l.target);
           extendDown(l.target);
         }
       }
     })(id);
-    steps.push({ mmd, currentId:id, branchNodes, branchEdges, revealedNodes:new Set(revealed) });
+    steps.push({ mmd: fullMmd, currentId:id, branchNodes, branchEdges, revealedNodes:new Set(revealed), allNodes });
   }
   return steps;
 }
@@ -345,8 +354,10 @@ function buildBranch(ast, branch, fullMmd){
 // 节点高亮用 mermaid class（已验证可靠）：当前分支统一绿色，当前节点额外加脉冲光晕
 function buildDirectives(s){
   let d = '';
-  // 已揭示节点：属于当前分支 -> 绿；其余 -> 淡灰（与边一致，非当前分支统一弱化）
-  for(const n of s.revealedNodes){
+  // 全图模式：未揭示节点也置灰（dimNode），因此这里遍历“全部节点”而非仅已揭示节点，
+  // 这样任何一步都渲染同一张完整图，仅当前 DFS 路径/当前节点高亮为绿色。
+  const all = s.allNodes || s.revealedNodes;
+  for(const n of all){
     d += `class ${n} ${s.branchNodes.has(n) ? 'branchNode' : 'dimNode'};\n`;
   }
   if(!s.noPulse) d += `class ${s.currentId} curNode;\n`;  // 预览态不加脉冲
@@ -414,7 +425,9 @@ async function renderStep(stage, s){
     const wasThere = oldSvg && oldSvg.querySelector('g.node[id^="flowchart-'+nid+'-"]');
     const wasGreen = oldSvg && oldSvg.querySelector('g.node[id^="flowchart-'+nid+'-"].branchNode');
     const newlyRevealed = !wasThere;
-    const newlyHighlighted = branchMode && !wasGreen;
+    // 全局/分支模式通用：节点由灰转绿（被揭示）时淡入弹出；不再依赖 branchMode 守卫，
+    // 因此全图（深度优先）逐步播放也拥有与独立分支一致的“节点浮现”过渡。
+    const newlyHighlighted = !wasGreen;
     if(newlyRevealed || newlyHighlighted){
       const bk = new Set(s.branchEdges.map(([a,b]) => a+'|'+b));
       // 边：仅让“与当前节点相连、且属于当前分支路径”的新边淡入（不缩放，避免路径变形；
@@ -437,7 +450,7 @@ async function renderStep(stage, s){
   }
   // 边：回边(循环边)用橙色虚线标出；当前分支边用绿色+流动；其余淡灰。回边不沿其遍历，避免死循环。
   const bk = new Set(s.branchEdges.map(([a,b]) => a+'|'+b));
-  const ck = new Set([...backEdges].filter(k => { const [a,b] = k.split('|'); return s.revealedNodes.has(a) && s.revealedNodes.has(b); }));
+  const ck = new Set([...backEdges].filter(k => { const [a,b] = k.split('|'); return (s.allNodes || s.revealedNodes).has(a) && (s.allNodes || s.revealedNodes).has(b); }));
   stage.querySelectorAll('.flowchart-link').forEach(p => {
     const cls = p.getAttribute('class') || '';
     const ls = (cls.match(/LS-([\w-]+)/) || [])[1];
@@ -488,7 +501,7 @@ async function generate(){
     FULL_MMD = quoteLabels(renderFlowchart(ast));          // 完整图，供总览/重置使用
     const fb = findBranches(ast);
     branches = fb.branches; cyclic = fb.cyclic; backEdges = fb.backEdges;  // 含环图不再爆栈；backEdges 用于把回边标成循环边
-    GLOBAL_STEPS = buildSteps(ast);
+    GLOBAL_STEPS = buildSteps(ast, FULL_MMD);
     BRANCH_STEPS = branches.map(b => buildBranch(ast, b, FULL_MMD));
     populateBranchSelect();
     CUR_FULL = FULL_MMD; STEPS = GLOBAL_STEPS; FULL_SIZE = null;   // 新图：清掉上一张图的尺寸缓存
@@ -627,7 +640,7 @@ async function frameToCanvas(s, scale, canvasW, canvasH){
   const holder = document.createElement('div'); holder.innerHTML = svgStr;
   const svg = holder.querySelector('svg');
   const bk = new Set(s.branchEdges.map(([a,b]) => a+'|'+b));
-  const ck = new Set([...backEdges].filter(k => { const [a,b] = k.split('|'); return s.revealedNodes.has(a) && s.revealedNodes.has(b); }));
+  const ck = new Set([...backEdges].filter(k => { const [a,b] = k.split('|'); return (s.allNodes || s.revealedNodes).has(a) && (s.allNodes || s.revealedNodes).has(b); }));
   svg.querySelectorAll('.flowchart-link').forEach(p => {
     const cls = p.getAttribute('class') || '';
     const ls = (cls.match(/LS-([\w-]+)/) || [])[1];
