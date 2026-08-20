@@ -2,6 +2,11 @@
 
 一个纯前端、零构建的单文件工具：把任意 `flowchart` / `graph` 代码，按**深度优先**顺序逐步揭示节点与边，并可按**分支**（源→汇的简单路径）逐条演示。解析交给开源库 [`mermaid-ast`](https://www.npmjs.com/package/mermaid-ast)（基于 Mermaid 官方 JISON 语法），渲染交给 `mermaid@10`。
 
+## 软件截图
+
+![](https://gitee.com/kehehee1/my-drawing-bed/raw/master/Image/20260820090714459.png)
+
+
 ## 功能特性
 
 - **逐步揭示**：按深度优先顺序逐节点/边高亮，绿色=当前分支路径，橙色脉冲=当前节点。
@@ -40,6 +45,7 @@ flowchart TD
 3. 用“下一步/上一步/自动播放”逐步揭示，或在“分支”下拉框选某条分支演示；
 4. 非流程图（时序图、类图等）直接显示完整图，不支持逐步揭示；
 5. 点“⤓ 导出播放文件”，先在「格式」下拉选 **独立 HTML 播放文件** 或 **GIF 动图**；导出 GIF 时可用「导出缩放」调节输出尺寸（默认 2×），然后导出：HTML 产物为独立的 `mermaid-playback.html`（已内嵌当前图、无左侧输入），GIF 产物为动画 `mermaid-playback.gif`。
+
 
 ## 使用说明（流程图）
 
