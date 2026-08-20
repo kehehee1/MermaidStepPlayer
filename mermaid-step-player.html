@@ -26,10 +26,12 @@
   button.ghost { background:#fff; color:var(--accent); }
   button:disabled { opacity:.45; cursor:not-allowed; }
    .stage { background:#fff; border:1px solid var(--line); border-radius:8px; padding:24px;
-             min-height:440px; display:flex; overflow:auto; }
+             min-height:440px; display:flex; overflow:auto;
+             align-items: safe center; justify-content: safe center; }
     /* SVG 按设定缩放比固定宽高，不随容器伸缩；flex:0 0 auto 防止在弹性容器里被压缩，
-       overflow:auto 提供滚动条，从而最大化前后尺寸/比例完全一致（不再水平压缩） */
-    .stage svg { max-width:none; height:auto; margin:auto; flex:0 0 auto; }
+       overflow:auto 提供滚动条，从而最大化前后尺寸/比例完全一致（不再水平压缩）。
+       居中用容器 safe center：内容超出视口时回退到顶端对齐，保证顶部不被裁切、可滚动到。 */
+    .stage svg { max-width:none; height:auto; flex:0 0 auto; }
     /* 最大化：动画区铺满视口，Esc 退出 */
     .stage.max { position:fixed; inset:0; z-index:9999; width:100vw; height:100vh;
                  border-radius:0; padding:32px; border:none; }
@@ -529,7 +531,17 @@ $('reset').onclick = ()=>{ stopPlay(); branchMode=false; branchPreview=null; $('
 $('play').onclick = togglePlay;
 $('samples').onchange = e => { $('src').value = SAMPLES[+e.target.value]; };
 
-function setMax(on){ const st = $('stage'); st.classList.toggle('max', on); document.body.classList.toggle('maxmode', on); $('max').textContent = on ? '⛓ 退出最大化' : '⛶ 最大化'; applyZoomTo(st); }
+// 最大化时把画布顶部对齐到固定控制栏之下；控制栏可能换行（高度不固定），故按其实测高度动态偏移
+function fitMaxTop(){
+  const st = $('stage');
+  if(!st.classList.contains('max')) return;
+  const ch = (document.querySelector('.controls') || {}).offsetHeight || 0;
+  st.style.top = ch + 'px';                       // 覆盖 inset:0 的 top:0，画布从控制栏之下开始
+  st.style.height = 'calc(100vh - ' + ch + 'px)'; // 让画布刚好填满控制栏以下的视口（避免底部溢出屏外）
+  st.style.paddingTop = '0';                      // 偏移已包含控制栏高度，避免双重留白
+}
+function setMax(on){ const st = $('stage'); st.classList.toggle('max', on); document.body.classList.toggle('maxmode', on); $('max').textContent = on ? '⛓ 退出最大化' : '⛶ 最大化'; if(on){ fitMaxTop(); requestAnimationFrame(fitMaxTop); } else { st.style.top=''; st.style.height=''; st.style.paddingTop=''; } applyZoomTo(st); }
+window.addEventListener('resize', fitMaxTop);   // 最大化中窗口缩放导致控制栏换行时，重新对齐
 $('max').onclick = () => setMax(!$('stage').classList.contains('max'));
 
 // 操作指引弹窗
