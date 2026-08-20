@@ -25,9 +25,10 @@
   button { border:1px solid var(--accent); background:var(--accent); color:#fff; }
   button.ghost { background:#fff; color:var(--accent); }
   button:disabled { opacity:.45; cursor:not-allowed; }
-   .stage { background:#fff; border:1px solid var(--line); border-radius:8px; padding:24px;
-             min-height:440px; display:flex; overflow:auto;
-             align-items: safe center; justify-content: safe center; }
+    .stage { background:#fff; border:1px solid var(--line); border-radius:8px; padding:24px;
+              min-height:440px; display:flex; overflow:auto; cursor:grab;
+              align-items: safe center; justify-content: safe center; }
+    .stage.grabbing { cursor:grabbing; user-select:none; }   /* 左键拖拽平移视口中 */
     /* SVG 按设定缩放比固定宽高，不随容器伸缩；flex:0 0 auto 防止在弹性容器里被压缩，
        overflow:auto 提供滚动条，从而最大化前后尺寸/比例完全一致（不再水平压缩）。
        居中用容器 safe center：内容超出视口时回退到顶端对齐，保证顶部不被裁切、可滚动到。 */
@@ -834,6 +835,23 @@ $('zoomVal').onchange = e => setZoom(+e.target.value || 100);
 // 滚轮缩放仅作用于缩放控件（滑块/输入框），画板内滚轮恢复为正常滚动/平移
 $('zoom').addEventListener('wheel', e => { e.preventDefault(); setZoom(zoom * 100 * (e.deltaY < 0 ? 1.1 : 0.9)); }, { passive:false });
 $('zoomVal').addEventListener('wheel', e => { e.preventDefault(); setZoom(zoom * 100 * (e.deltaY < 0 ? 1.1 : 0.9)); }, { passive:false });
+// 左键按住画板拖动平移视口（沿用 overflow 滚动条机制，拖动即改 scrollLeft/Top）
+(function enablePan(){
+  const st = $('stage');
+  let dragging = false, px = 0, py = 0, sl = 0, stp = 0;
+  st.addEventListener('mousedown', e => {
+    if(e.button !== 0) return;                       // 仅左键
+    dragging = true; px = e.clientX; py = e.clientY; sl = st.scrollLeft; stp = st.scrollTop;
+    st.classList.add('grabbing');
+    e.preventDefault();                              // 避免选中文本/触发原生拖拽
+  });
+  window.addEventListener('mousemove', e => {
+    if(!dragging) return;
+    st.scrollLeft = sl - (e.clientX - px);
+    st.scrollTop  = stp - (e.clientY - py);
+  });
+  window.addEventListener('mouseup', () => { dragging = false; st.classList.remove('grabbing'); });
+})();
 function populateBranchSelect(){
   const sel = $('branches');
   sel.innerHTML = '<option value="">全部（深度优先）</option>';
