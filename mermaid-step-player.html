@@ -161,7 +161,7 @@
       <li><b>分支演示</b>：右侧“分支”下拉框选某条分支（源→汇的简单路径），整条分支绿色高亮并逐步演示；选“全部（深度优先）”回到总览。</li>
       <li><b>缩放</b>：拖动“缩放”滑条或手动输入百分比，也可在滑条/输入框上滚轮缩放。</li>
       <li><b>最大化</b>：点“⛶ 最大化”铺满画板，按 <kbd>Esc</kbd> 退出。</li>
-      <li><b>画布工具</b>：点“✋ 拖动视图 / ⚲ 选择节点”切换。拖动工具下左键按住拖动画板平移视口；选择工具下左键拖拽不再平移，点击画布上的节点即可跳到该节点并激活。</li>
+      <li><b>画布工具</b>：点“✋ 拖动视图 / ⚲ 选择节点”切换。拖动工具下左键按住拖动画板平移视口；选择工具下可点选/选中画布节点里的文字内容（不再平移）。任意工具下<strong>双击</strong>画布节点即跳到该节点并激活（底部链表同步高亮）。</li>
       <li><b>键盘快捷键</b>：<kbd>←</kbd> 上一步，<kbd>→</kbd> 下一步，<kbd>空格</kbd> 播放/暂停，<kbd>Esc</kbd> 关闭本指引 / 退出最大化。</li>
       <li><b>颜色含义</b>：绿色=当前分支路径（流动），橙色虚线=回边/循环，橙色脉冲=当前节点，淡灰=其它已揭示节点。</li>
       <li><b>含环图</b>：遇到回边/环会按简单路径拆分分支并提示，不会卡死。</li>
@@ -839,7 +839,7 @@ $('zoomVal').onchange = e => setZoom(+e.target.value || 100);
 // 滚轮缩放仅作用于缩放控件（滑块/输入框），画板内滚轮恢复为正常滚动/平移
 $('zoom').addEventListener('wheel', e => { e.preventDefault(); setZoom(zoom * 100 * (e.deltaY < 0 ? 1.1 : 0.9)); }, { passive:false });
 $('zoomVal').addEventListener('wheel', e => { e.preventDefault(); setZoom(zoom * 100 * (e.deltaY < 0 ? 1.1 : 0.9)); }, { passive:false });
-// 画布工具：panMode=true 左键拖拽平移视口；false 为选择工具，点节点即激活跳转
+// 画布工具：panMode=true 左键拖拽平移视口；false 为选择工具（点选节点内文字，不激活）；双击节点任意工具下都激活
 let panMode = true;
 (function enablePan(){
   const st = $('stage');
@@ -856,9 +856,8 @@ let panMode = true;
     st.scrollTop  = stp - (e.clientY - py);
   });
   window.addEventListener('mouseup', () => { dragging = false; st.classList.remove('grabbing'); });
-  // 点击画布节点 → 跳到该节点所在步骤并激活（同步底部节点列表）。选择工具下生效
-  st.addEventListener('click', e => { if(panMode) return; activateNodeFromEvent(e); });
-  // 双击画布节点：任意工具下都激活并同步底部节点列表（不受平移工具影响）
+  // 选择工具：允许点选/选中节点内的文字内容（不拦截默认行为、不激活）；仅双击才激活
+  // 双击画布节点：任意工具下都激活并同步底部节点列表（拖动工具下双击也激活，不平移）
   st.addEventListener('dblclick', e => { activateNodeFromEvent(e); });
   function activateNodeFromEvent(e){
     const g = e.target.closest && e.target.closest('.node');
