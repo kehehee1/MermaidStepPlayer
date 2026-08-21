@@ -11,13 +11,14 @@
   :root { --accent:#2563eb; --bg:#f8fafc; --line:#cbd5e1; }
   * { box-sizing: border-box; }
   body { margin:0; font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;
-          background:var(--bg); color:#1e293b; overflow-x:hidden; }   /* 页面不出现水平滚动条，画板内自行滚动 */
+          background:var(--bg); color:#1e293b; overflow:hidden;
+          height:100vh; display:grid; grid-template-rows:auto 1fr; }   /* 整页占满视口、不滚动：上=标题，下=主区占满剩余高度 */
   header { padding:16px 24px; background:#fff; border-bottom:1px solid var(--line); }
   header h1 { margin:0; font-size:18px; }
   header p { margin:4px 0 0; font-size:13px; color:#64748b; }
-  .wrap { display:flex; gap:16px; padding:16px 24px; flex-wrap:wrap; }
-  .left { width:380px; min-width:300px; flex:1 1 320px; min-width:0; }
-  .right { flex:2 1 480px; min-width:0; }   /* min-width:0 允许收缩，画板不撑宽页面 */
+  .wrap { display:grid; grid-template-columns:minmax(300px,380px) minmax(0,1fr); grid-template-rows:minmax(0,1fr); gap:16px; padding:16px 24px; min-height:0; }   /* 左固定、右充满；行高由 1fr 锁定，子项不会把页面撑高 */
+  .left { display:flex; flex-direction:column; min-height:0; overflow:auto; }   /* 纵向分栏、超高时内部滚动 */
+  .right { display:grid; grid-template-rows:auto minmax(0,1fr) auto; min-height:0; }   /* 控制栏 / 画板(占满剩余、内部滚动) / 链表，三行均由网格锁定 */
   textarea { width:100%; height:240px; font-family:Consolas,Menlo,monospace; font-size:13px;
              padding:10px; border:1px solid var(--line); border-radius:8px; resize:vertical; }
   .row { display:flex; gap:8px; align-items:center; margin:10px 0; flex-wrap:wrap; }
@@ -26,9 +27,9 @@
   button.ghost { background:#fff; color:var(--accent); }
   button:disabled { opacity:.45; cursor:not-allowed; }
     .stage { background:#fff; border:1px solid var(--line); border-radius:8px; padding:24px;
-              min-height:440px; display:flex; overflow:auto; cursor:grab;
+              flex:1 1 auto; min-height:0; display:flex; overflow:auto; cursor:grab;
               align-items: safe center; justify-content: safe center;
-              width:100%; min-width:0; max-width:100%; }   /* 宽度不超容器：宽图在画板内滚动，而非撑宽页面 */
+              width:100%; min-width:0; max-width:100%; }   /* 占满右侧剩余高度并在内部滚动，不撑高页面；宽图在画板内滚动 */
     .stage.grabbing { cursor:grabbing; user-select:none; }   /* 左键拖拽平移视口中 */
     .stage.selmode { cursor:default; }                       /* 选择工具：不平移，可点选节点 */
     /* SVG 按设定缩放比固定宽高，不随容器伸缩；flex:0 0 auto 防止在弹性容器里被压缩，
@@ -45,8 +46,8 @@
    body.maxmode .stage.max { padding-top:72px; }
    /* 底部节点链表：用 > 连接，超长文本省略号截断；最大化时固定在视口底部 */
    .chain { display:flex; align-items:center; gap:0; overflow-x:auto; overflow-y:hidden;
-            background:#fff; border:1px solid var(--line); border-radius:8px;
-            padding:8px 12px; margin-top:12px; min-height:38px; max-height:38px; font-size:13px; }
+             flex:0 0 auto; background:#fff; border:1px solid var(--line); border-radius:8px;
+             padding:8px 12px; margin-top:12px; min-height:38px; max-height:38px; font-size:13px; }   /* flex:0 0 auto：始终贴底、不被压缩，留在视口内 */
    .chain::-webkit-scrollbar { height:8px; }
    .chain::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:4px; }
    .chain .chip { flex:0 0 auto; max-width:160px; padding:4px 10px; border:1px solid var(--line);
@@ -79,7 +80,7 @@
   }
   .edge-flow { stroke-dasharray:8 6; animation:dash 1s linear infinite; }
   @keyframes dash { to { stroke-dashoffset:-14; } }
-  .controls { display:flex; gap:10px; align-items:center; padding:0 24px 8px; flex-wrap:wrap; }
+  .controls { display:flex; gap:10px; align-items:center; padding:0 24px 8px; flex-wrap:wrap; flex:0 0 auto; }
   .progress { font-size:13px; color:#64748b; margin-left:auto; }
   .hint { padding:0 24px 24px; font-size:12px; color:#94a3b8; line-height:1.6; }
   .err { color:#dc2626; font-size:13px; }
