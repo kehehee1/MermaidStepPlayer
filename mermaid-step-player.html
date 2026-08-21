@@ -115,6 +115,13 @@
         <option value="2">示例三：含 subgraph 子图</option>
       </select>
     </div>
+    <div class="row">
+      <label>历史：</label>
+      <select id="history"><option value="">（暂无记录）</option></select>
+      <button class="ghost" id="loadHist" title="浏览选中的历史记录（即使只有一条也可加载）">浏览</button>
+      <button class="ghost" id="delHist" title="删除当前正在浏览的历史记录">删除当前</button>
+      <button class="ghost" id="clearHist" title="清空全部历史记录">清空</button>
+    </div>
     <textarea id="src" spellcheck="false"></textarea>
     <div class="row">
       <button id="gen">生成步骤并播放</button>
@@ -567,6 +574,7 @@ async function generate(){
   branchMode = false; branchPreview = null;   // 清掉上一图的分支预览状态，避免切换后画板仍显示旧分支
   const code = $('src').value.trim();
   if(!code){ $('stage').innerHTML = '<em style="color:#94a3b8">文本框为空</em>'; return; }
+  recordHistory(code);                                  // 点击“生成步骤并播放”即记录为最近浏览
   const type = detectDiagramType(code);
   if(type !== 'flowchart'){
     // 非流程图：直接渲染完整图，不做逐步揭示
@@ -609,6 +617,120 @@ $('prev').onclick = ()=>{ stopPlay(); step = step > 0 ? step-1 : -1; show(step);
 $('reset').onclick = ()=>{ stopPlay(); branchMode=false; branchPreview=null; selBranch=-1; $('branches').value=''; STEPS = GLOBAL_STEPS; CUR_FULL = FULL_MMD; step=-1; renderChain(); show(-1); };
 $('play').onclick = togglePlay;
 $('samples').onchange = e => { $('src').value = SAMPLES[+e.target.value]; };
+
+// ===== 最近浏览历史：点击“生成步骤并播放”时记录当前 mermaid 代码（去重置顶，localStorage 持久化） =====
+const HIST_KEY = 'mermaid_step_player_history';
+let currentCode = '';                                   // 当前正在浏览的历史记录对应的源码（用于“删除当前”）
+function loadHistory(){ try { return JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch(_) { return []; } }
+function saveHistory(list){ localStorage.setItem(HIST_KEY, JSON.stringify(list)); }
+function recordHistory(code){
+  code = (code || '').trim();
+  if(!code) return;
+  let list = loadHistory().filter(h => h.code !== code);
+  list.unshift({ code, time: Date.now() });              // 最新浏览置顶
+  if(list.length > 50) list = list.slice(0, 50);          // 最多保留 50 条
+  saveHistory(list);
+  currentCode = code;
+  populateHistory();
+}
+// 取 mermaid 第一个节点“显示出来的真实名字”作为历史标题：去掉图头(flowchart/graph + 方向)，
+// 跳过 subgraph 声明，找到首个真实节点，按形状([ ] ( ) (( )) { } [[ ]] 等)提取标签文本，
+// 并剥去嵌套括号取到最内层（如 ([开始]) → 开始），去掉引号；无标签时退回节点 id。
+function firstNodeLabel(code){
+  const body = code.replace(/^\s*(?:flowchart|graph)\s+[A-Za-z]*\s*/m, '');
+  const closeMap = { '[':']', '(':')', '{':'}', '/':'\\', '\\':'\\' };
+  // 从成对括号中取中间内容（s[0] 为 opener，已计入 depth0；支持嵌套与双括号 [[ ]]）(())
+  const balanced = (s, open, depth0) => {
+    const close = closeMap[open]; let depth = depth0;
+    for(let i = 1; i < s.length; i++){
+      const c = s[i];
+      if(c === open) depth++;
+      else if(c === close){ depth--; if(depth === 0) return s.slice(1, i); }
+    }
+    return null;
+  };
+  for(const line of body.split('\n')){
+    const m = line.match(/^\s*([\w\u4e00-\u9fa5]+)\s*([\[\({/\u005c])/);
+    if(!m) continue;
+    const id = m[1];
+    if(id.toLowerCase() === 'subgraph') continue;            // 跳过子图声明
+    const opener = m[2];
+    let s = line.slice(m.index + m[0].length);               // 从 opener 起
+    let depth0 = 1;
+    if((opener === '[' || opener === '(') && s[0] === s[1]){ s = s.slice(1); depth0 = 2; } // 双字符 opener [[ ((
+    let inner = balanced(s, opener, depth0);
+    if(inner == null) return id;                              // 解析不到则退回节点 id
+    // 若内容本身还包着一层形状（如 ([开始]) 的 [开始]），再剥一层取最内层标签
+    while(inner.length >= 2){
+      const o = inner[0];
+      if(closeMap[o] && inner[inner.length - 1] === closeMap[o]){
+        const deeper = balanced(inner, o, 1);
+        if(deeper != null) inner = deeper; else break;
+      } else break;
+    }
+    const lbl = inner.trim().replace(/^["']|["']$/g, '');
+    return lbl || id;
+  }
+  return (code.split('\n').find(l => l.trim()) || '').trim();  // 兜底：用首行
+}
+function histLabel(h){
+  const first = firstNodeLabel(h.code);
+  const t = new Date(h.time);
+  const pad = n => String(n).padStart(2, '0');
+  const ts = `${pad(t.getMonth()+1)}-${pad(t.getDate())} ${pad(t.getHours())}:${pad(t.getMinutes())}`;
+  const head = first.length > 36 ? first.slice(0, 36) + '…' : first;
+  return `${head}  (${ts})`;
+}
+function populateHistory(){
+  const sel = $('history');
+  if(!sel) return;                                      // 导出播放文件等精简页面无历史下拉框，直接跳过
+  const list = loadHistory();
+  sel.innerHTML = '';
+  if(!list.length){ sel.innerHTML = '<option value="">（暂无记录）</option>'; return; }
+  list.forEach((h, i) => {
+    const opt = document.createElement('option');
+    opt.value = String(i);
+    opt.textContent = histLabel(h);
+    sel.appendChild(opt);
+  });
+}
+$('history') && ($('history').onchange = e => {
+  const i = +e.target.value;
+  const h = loadHistory()[i];
+  if(!h) return;
+  $('src').value = h.code;
+  currentCode = h.code;
+  generate();
+});
+// “浏览”按钮：即使下拉框只有一条记录（无法触发 onchange）也能加载选中项
+$('loadHist') && ($('loadHist').onclick = () => {
+  const i = +$('history').value;
+  const h = loadHistory()[i];
+  if(!h){ if(!loadHistory().length) alert('暂无历史记录'); return; }
+  $('src').value = h.code;
+  currentCode = h.code;
+  generate();
+});
+$('delHist') && ($('delHist').onclick = () => {
+  const list = loadHistory();
+  const before = list.length;
+  const after = list.filter(h => h.code !== currentCode);
+  if(after.length === before){
+    if(before === 0) alert('暂无历史记录');
+    else alert('当前图不在历史记录中');
+    return;
+  }
+  saveHistory(after);
+  currentCode = '';
+  populateHistory();
+});
+$('clearHist') && ($('clearHist').onclick = () => {
+  if(!loadHistory().length){ alert('暂无历史记录'); return; }
+  if(!confirm('确定清空全部历史记录？')) return;
+  localStorage.removeItem(HIST_KEY);
+  currentCode = '';
+  populateHistory();
+});
 
 // 最大化时把画布顶部对齐到固定控制栏之下；控制栏可能换行（高度不固定），故按其实测高度动态偏移
 function fitMaxTop(){
@@ -895,6 +1017,7 @@ $('branches').onchange = e => {
 };
 
 $('src').value = SAMPLES[0];
+populateHistory();                                 // 页面初始化时载入历史下拉框
 </script>
 </body>
 </html>
