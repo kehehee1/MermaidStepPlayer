@@ -655,10 +655,9 @@ function firstNodeLabel(code){
     const id = m[1];
     if(id.toLowerCase() === 'subgraph') continue;            // 跳过子图声明
     const opener = m[2];
-    let s = line.slice(m.index + m[0].length);               // 从 opener 起
-    let depth0 = 1;
-    if((opener === '[' || opener === '(') && s[0] === s[1]){ s = s.slice(1); depth0 = 2; } // 双字符 opener [[ ((
-    let inner = balanced(s, opener, depth0);
+    // s 含 opener 起始，由 balanced 从首个括号起按嵌套深度匹配到对应闭合，天然支持 [[ ]] (()) ([ ]) 等
+    const s = line.slice(m.index + m[0].length - 1);
+    let inner = balanced(s, opener, 1);
     if(inner == null) return id;                              // 解析不到则退回节点 id
     // 若内容本身还包着一层形状（如 ([开始]) 的 [开始]），再剥一层取最内层标签
     while(inner.length >= 2){
