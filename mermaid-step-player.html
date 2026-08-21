@@ -1130,8 +1130,16 @@ $('branches').onchange = e => {
   renderChain(); show(-1);
 };
 
-$('src').value = SAMPLES[0];
 populateHistory();                                 // 页面初始化时载入历史下拉框
+const _initHist = loadHistory();
+if(_initHist.length){                               // 有历史则默认加载最近一次记录，而非示例
+  $('src').value = _initHist[0].code;
+  currentCode = _initHist[0].code;
+  $('history').value = '0';
+  generate();
+} else {
+  $('src').value = SAMPLES[0];
+}
 </script>
 </body>
 </html>
