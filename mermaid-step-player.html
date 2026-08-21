@@ -87,6 +87,11 @@
   }
   /* 当前节点：在绿色基础上加脉冲光晕（不改填充色，保持分支内一致） */
   .curNode { animation: nodePulse 1.1s ease-in-out infinite; }
+  /* 脚本行悬浮定位时的临时高亮：橙色描边 + 光晕，2 秒后移除（不改变节点填充色，不干扰分支绿/淡灰配色） */
+  .hoverNode rect, .hoverNode polygon, .hoverNode circle, .hoverNode ellipse, .hoverNode path {
+    stroke:#ef8354 !important; stroke-width:3px !important;
+  }
+  .hoverNode { filter: drop-shadow(0 0 7px #ef8354); }
   @keyframes nodePulse {
     0%,100% { filter: drop-shadow(0 0 0px #ef8354); }
     50%     { filter: drop-shadow(0 0 9px #ef8354); }
@@ -185,6 +190,7 @@
       <li><b>最大化</b>：点“⛶ 最大化”铺满画板，按 <kbd>Esc</kbd> 退出。</li>
       <li><b>画布工具</b>：点“✋ 拖动视图 / ⚲ 选择节点”切换。拖动工具下左键按住拖动画板平移视口；选择工具下可点选/选中画布节点里的文字内容（不再平移）。任意工具下<strong>双击</strong>画布节点即跳到该节点并激活（底部链表同步高亮）。</li>
       <li><b>拷贝节点列表</b>：点画板下方的“⧉ 拷贝节点列表”，把<strong>当前已运行到的节点</strong>（首节点到当前步）以 <code> &gt; </code> 连接的形式复制到剪贴板，方便粘贴成路径文本。</li>
+       <li><b>脚本行点击定位</b>：图已生成后，<strong>点击</strong>左侧源码编辑框的某一行（光标落在哪行），画板即滚动到该行对应的节点并<strong>橙色高亮 2 秒</strong>（不改变配色、不重渲染，开销极低）。优先定位行内<strong>被描述的目标节点</strong>：如 `A --> B["初始化 report 对象"]` 会定位到带描述的 B，而非裸源节点 A；在编辑框内移动鼠标不会触发，仅点击时执行。</li>
        <li><b>缩略导航图</b>：生成图形后画板左下角出现固定尺寸的缩略图，蓝色边框标出画板<strong>当前可见区域</strong>（随滚动/缩放实时移动）；<strong>点击缩略图任意位置</strong>即可把画板滚动到对应位置居中；点标题栏「缩略导航」可<strong>收起/展开</strong>。最大化时缩略图相对视口固定，不随画板滚动而移动。</li>
        <li><b>键盘快捷键</b>：<kbd>←</kbd> 上一步，<kbd>→</kbd> 下一步，<kbd>空格</kbd> 播放/暂停，<kbd>Esc</kbd> 关闭本指引 / 退出最大化。</li>
       <li><b>颜色含义</b>：绿色=当前分支路径（流动），橙色虚线=回边/循环，橙色脉冲=当前节点，淡灰=其它已揭示节点。</li>
@@ -252,6 +258,8 @@ function quoteLabels(mmd){
 let STEPS = [], GLOBAL_STEPS = [], BRANCH_STEPS = [], branches = [], branchMode = false, branchPreview = null, step = 0, timer = null, FULL_MMD = '', CUR_FULL = '', zoom = 1, baseW = 0, baseH = 0, cyclic = false, backEdges = new Set();
 // 底部节点链表用：节点实际文本（mermaid 标签）、当前选中的分支索引
 let NODE_TEXT = new Map(), selBranch = -1;
+// 脚本行→节点 映射（点击定位用）：lineNodeMap[行号] = 该行出现的节点 id 列表；hlTimer/hlEl 为点击定位的高亮计时
+let lineNodeMap = [], hlTimer = null, hlEl = null;
 // GIF 导出相关状态：放在模块顶层，导出播放文件时剥离 GIF 模块后仍需可用，否则 generate() 里的 FULL_SIZE = null 会因未声明而抛 “FULL_SIZE is not defined”
 let CAP_ID = 0, FULL_SIZE = null;
 
@@ -523,6 +531,66 @@ function copyNodeList(){
 }
 $('copyChain') && ($('copyChain').onclick = copyNodeList);
 
+// ===== 脚本行点击定位：点击左侧源码某一行（光标落点），若图已生成则把画板滚动到该行对应的节点并临时高亮 2 秒 =====
+// 由源码逐行确定“该行要定位到的主节点”：优先取行内显式带形状/标签定义的节点（id 后紧跟 [ ( { ），多个时取最后一个（即目标）；
+// 无显式定义时取行末目标节点。这样 `A --> B["描述"]` 会定位到被描述的 B，而非裸源节点 A。
+function buildLineNodeMap(code){
+  const map = [];
+  const KW = new Set(['subgraph','end','graph','flowchart']);
+  for(const line of code.split('\n')){
+    const ids = [];
+    const re = /[\w\u4e00-\u9fa5]+/g; let m;
+    while((m = re.exec(line))){
+      const t = m[0];
+      if(KW.has(t.toLowerCase())) continue;
+      if(NODE_TEXT.has(t)) ids.push({ id:t, pos:m.index });
+    }
+    // 标记“显式带形状/标签定义”的节点：id 后（跳过空格）紧跟 [ ( {
+    for(const it of ids){
+      it.defined = /^\s*[[({]/.test(line.slice(it.pos + it.id.length));
+    }
+    let primary = null;
+    const defined = ids.filter(i => i.defined);
+    if(defined.length) primary = defined[defined.length - 1].id;     // 多个取最后一个被定义的（即目标）
+    else if(ids.length) primary = ids[ids.length - 1].id;            // 无显式定义则取行末目标节点
+    map.push(primary);
+  }
+  return map;
+}
+// 把画板滚动到指定节点并临时高亮（2 秒后移除），不改变填充色、不触发重新渲染，性能开销极低
+function locateNode(id){
+  const stage = $('stage');
+  const g = stage.querySelector('g.node[id^="flowchart-' + id + '-"]');
+  if(!g) return;
+  const sr = stage.getBoundingClientRect(), gr = g.getBoundingClientRect();
+  stage.scrollLeft += gr.left - sr.left + gr.width/2 - sr.width/2;
+  stage.scrollTop  += gr.top  - sr.top  + gr.height/2 - sr.height/2;
+  if(hlEl && hlEl !== g) hlEl.classList.remove('hoverNode');   // 仅保留最新一个高亮，避免叠加
+  g.classList.add('hoverNode'); hlEl = g;
+  if(hlTimer) clearTimeout(hlTimer);
+  hlTimer = setTimeout(() => { g.classList.remove('hoverNode'); if(hlEl === g) hlEl = null; }, 2000);
+}
+(function bindSrcHover(){
+  const src = $('src');
+  const process = e => {
+    if(!lineNodeMap.length) return;
+    // 用 caretPositionFromPoint 取字符偏移（自动适配自动换行），再换算行号；不支持时退回按 Y/行高估算
+    let offset = null;
+    if(document.caretPositionFromPoint){ const cp = document.caretPositionFromPoint(e.clientX, e.clientY); if(cp && cp.offsetNode === src) offset = cp.offset; }
+    else if(document.caretRangeFromPoint){ const rg = document.caretRangeFromPoint(e.clientX, e.clientY); if(rg && rg.startContainer === src) offset = rg.startOffset; }
+    let line;
+    if(offset != null) line = src.value.slice(0, offset).split('\n').length - 1;
+    else {
+      const r = src.getBoundingClientRect(), cs = getComputedStyle(src);
+      const lh = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) * 1.4);
+      line = Math.floor((e.clientY - r.top - (parseFloat(cs.paddingTop) || 0) + src.scrollTop) / lh);
+    }
+    if(line < 0 || line >= lineNodeMap.length) return;
+    const id = lineNodeMap[line];
+    if(id) locateNode(id);
+  };
+  src.addEventListener('click', e => { if(lineNodeMap.length) process(e); });   // 仅点击定位光标所在行，避免悬浮即跳转
+})();
 // 挂载 SVG 并记录基准尺寸，再按当前缩放比应用
 function mount(stage, svgStr){
   stage.innerHTML = svgStr;
@@ -717,6 +785,7 @@ async function generate(){
     populateBranchSelect();
     CUR_FULL = FULL_MMD; STEPS = GLOBAL_STEPS; FULL_SIZE = null;   // 新图：清掉上一张图的尺寸缓存
     graphGen++;                                            // 新图：缩略导航图重新克隆一次
+    lineNodeMap = buildLineNodeMap(code);   // 构建“脚本行→节点”映射，供点击定位
     selBranch = -1; renderChain();                         // 重置选中分支并渲染底部节点链表
     step = -1; await show(-1);                              // 先显示完整流程图
   } catch(e){
