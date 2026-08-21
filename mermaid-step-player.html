@@ -18,7 +18,7 @@
   header p { margin:4px 0 0; font-size:13px; color:#64748b; }
   .wrap { display:grid; grid-template-columns:minmax(300px,380px) minmax(0,1fr); grid-template-rows:minmax(0,1fr); gap:16px; padding:16px 24px; min-height:0; }   /* 左固定、右充满；行高由 1fr 锁定，子项不会把页面撑高 */
   .left { display:flex; flex-direction:column; min-height:0; overflow:auto; }   /* 纵向分栏、超高时内部滚动 */
-  .right { display:grid; grid-template-rows:auto minmax(0,1fr) auto; min-height:0; }   /* 控制栏 / 画板(占满剩余、内部滚动) / 链表，三行均由网格锁定 */
+  .right { display:grid; grid-template-rows:auto minmax(0,1fr) auto; min-height:0; position:relative; }   /* 控制栏 / 画板(占满剩余、内部滚动) / 链表，三行均由网格锁定；缩略图相对此容器固定 */
   textarea { width:100%; height:240px; font-family:Consolas,Menlo,monospace; font-size:13px;
              padding:10px; border:1px solid var(--line); border-radius:8px; resize:vertical; }
   .row { display:flex; gap:8px; align-items:center; margin:10px 0; flex-wrap:wrap; }
@@ -27,9 +27,22 @@
   button.ghost { background:#fff; color:var(--accent); }
   button:disabled { opacity:.45; cursor:not-allowed; }
     .stage { background:#fff; border:1px solid var(--line); border-radius:8px; padding:24px;
-              flex:1 1 auto; min-height:0; display:flex; overflow:auto; cursor:grab;
+              flex:1 1 auto; min-height:0; display:flex; overflow:auto; cursor:grab; position:relative;
               align-items: safe center; justify-content: safe center;
               width:100%; min-width:0; max-width:100%; }   /* 占满右侧剩余高度并在内部滚动，不撑高页面；宽图在画板内滚动 */
+    /* 缩略导航图：相对右侧容器（非滚动区）固定在左下角，不随画板滚动而移动；可收起/展开；点击可跳转 */
+    .minimap { position:absolute; left:12px; bottom:56px; z-index:60; width:220px;
+               background:rgba(255,255,255,.96); border:1px solid var(--line); border-radius:8px;
+               box-shadow:0 2px 12px rgba(0,0,0,.15); font-size:12px; color:#334155; overflow:hidden; }
+    body.maxmode .minimap { position:fixed; left:12px; bottom:64px; z-index:10001; }   /* 最大化时画板为固定全屏，缩略图改为相对视口固定，避开底部节点链表 */
+    .minimap.collapsed .minimap-body { display:none; }
+    .minimap-head { display:flex; align-items:center; justify-content:space-between;
+                    padding:5px 10px; background:#f1f5f9; cursor:pointer; user-select:none; font-weight:600; }
+    .minimap-toggle { color:#64748b; font-size:11px; }
+    .minimap-body { position:relative; display:block; padding:6px; height:150px; overflow:hidden; background:#fff; }
+    .minimap-body svg { display:block; width:100%; height:100%; }   /* 固定高度容器，SVG 以 viewBox 等比 letterbox 居中，不再被压扁 */
+    .minimap-view { position:absolute; border:2px solid var(--accent); background:rgba(37,99,235,.12);
+                    pointer-events:none; border-radius:2px; }
     .stage.grabbing { cursor:grabbing; user-select:none; }   /* 左键拖拽平移视口中 */
     .stage.selmode { cursor:default; }                       /* 选择工具：不平移，可点选节点 */
     /* SVG 按设定缩放比固定宽高，不随容器伸缩；flex:0 0 auto 防止在弹性容器里被压缩，
@@ -172,7 +185,8 @@
       <li><b>最大化</b>：点“⛶ 最大化”铺满画板，按 <kbd>Esc</kbd> 退出。</li>
       <li><b>画布工具</b>：点“✋ 拖动视图 / ⚲ 选择节点”切换。拖动工具下左键按住拖动画板平移视口；选择工具下可点选/选中画布节点里的文字内容（不再平移）。任意工具下<strong>双击</strong>画布节点即跳到该节点并激活（底部链表同步高亮）。</li>
       <li><b>拷贝节点列表</b>：点画板下方的“⧉ 拷贝节点列表”，把<strong>当前已运行到的节点</strong>（首节点到当前步）以 <code> &gt; </code> 连接的形式复制到剪贴板，方便粘贴成路径文本。</li>
-      <li><b>键盘快捷键</b>：<kbd>←</kbd> 上一步，<kbd>→</kbd> 下一步，<kbd>空格</kbd> 播放/暂停，<kbd>Esc</kbd> 关闭本指引 / 退出最大化。</li>
+       <li><b>缩略导航图</b>：生成图形后画板左下角出现固定尺寸的缩略图，蓝色边框标出画板<strong>当前可见区域</strong>（随滚动/缩放实时移动）；<strong>点击缩略图任意位置</strong>即可把画板滚动到对应位置居中；点标题栏「缩略导航」可<strong>收起/展开</strong>。最大化时缩略图相对视口固定，不随画板滚动而移动。</li>
+       <li><b>键盘快捷键</b>：<kbd>←</kbd> 上一步，<kbd>→</kbd> 下一步，<kbd>空格</kbd> 播放/暂停，<kbd>Esc</kbd> 关闭本指引 / 退出最大化。</li>
       <li><b>颜色含义</b>：绿色=当前分支路径（流动），橙色虚线=回边/循环，橙色脉冲=当前节点，淡灰=其它已揭示节点。</li>
       <li><b>含环图</b>：遇到回边/环会按简单路径拆分分支并提示，不会卡死。</li>
        <li><b>导出播放文件</b>：先选“格式”（独立 HTML 播放文件 / GIF 动图），再点“⤓ 导出播放文件”。HTML 模式生成只含右侧播放界面、已内嵌当前图的独立 HTML，可直接发给他人播放（仍需联网加载渲染库）；GIF 模式把逐步揭示的每一步渲染成帧、编码为动画 GIF，可直接插入 PPT/文档（导出时需联网加载渲染库与 gif.js）。</li>
@@ -425,6 +439,7 @@ async function show(i){
     $('prev').disabled = true;
     $('next').disabled = STEPS.length === 0;
     updateChainActive();
+    showMinimap(true);
     return;
   }
   const s = STEPS[i];
@@ -433,6 +448,7 @@ async function show(i){
   $('prev').disabled = i === 0;
   $('next').disabled = i === STEPS.length-1;
   updateChainActive();
+  showMinimap(true);
 }
 
 // 底部节点链表：全部模式显示全部节点（深度优先顺序），分支模式显示该分支路径；节点用 > 连接，
@@ -519,6 +535,72 @@ function mount(stage, svgStr){
   applyZoomTo(stage);
 }
 
+// ===== 缩略导航图：画板左下角浮层，展示完整图缩略，并标出当前视口位置；可收起/展开，点击跳转 =====
+let minimapEl = null, minimapSig = -1, graphGen = 0;
+function buildMinimap(){
+  if(minimapEl) return minimapEl;
+  const el = document.createElement('div');
+  el.className = 'minimap';
+  el.innerHTML = '<div class="minimap-head"><span>缩略导航</span><span class="minimap-toggle">▾</span></div>'
+               + '<div class="minimap-body"><div class="minimap-view"></div></div>';
+  el.addEventListener('mousedown', e => e.stopPropagation());   // 不触发画板拖拽平移
+  el.querySelector('.minimap-head').addEventListener('click', () => {
+    el.classList.toggle('collapsed');
+    el.querySelector('.minimap-toggle').textContent = el.classList.contains('collapsed') ? '▸' : '▾';
+  });
+  el.querySelector('.minimap-body').addEventListener('click', e => {
+    const stage = $('stage'), box = el.querySelector('.minimap-body');
+    if(!baseW || !baseH) return;
+    const r = box.getBoundingClientRect();
+    const gw = baseW * zoom, gh = baseH * zoom;
+    const s = Math.min(r.width / gw, r.height / gh);
+    const offX = (r.width - gw * s) / 2, offY = (r.height - gh * s) / 2;
+    stage.scrollLeft = (e.clientX - r.left - offX) / s - stage.clientWidth / 2;
+    stage.scrollTop  = (e.clientY - r.top  - offY) / s - stage.clientHeight / 2;
+  });
+  minimapEl = el;
+  return el;
+}
+// 显示/隐藏缩略图；显示时重绘缩略并定位视口框（缩略图挂在 .right 上，不随画板滚动而移动）
+function showMinimap(on){
+  const host = document.querySelector('.right'), el = buildMinimap();
+  if(on){
+    if(el.parentNode !== host) host.appendChild(el);
+    el.style.display = '';
+    updateMinimap();
+  } else if(el.parentNode){ el.parentNode.removeChild(el); }
+}
+function updateMinimap(){
+  const el = minimapEl; if(!el) return;
+  const host = document.querySelector('.right');
+  if(el.parentNode !== host) return;
+  const stage = $('stage'), body = el.querySelector('.minimap-body'), src = stage.querySelector('svg');
+  if(!src || !baseW || !baseH){ return; }
+  // 同一张图只克隆一次（用 graphGen 标识），避免逐步播放时重复克隆大 SVG
+  if(minimapSig !== graphGen){
+    const c = src.cloneNode(true);
+    c.removeAttribute('style');                       // 去掉画板内的 max-width:none 等内联样式，交给 .minimap-body svg 缩放
+    const old = body.querySelector('svg'); if(old) old.remove();
+    body.insertBefore(c, body.firstChild);
+    minimapSig = graphGen;
+  }
+  requestAnimationFrame(() => {
+    const svg = body.querySelector('svg'); if(!svg) return;
+    const boxR = body.getBoundingClientRect();
+    const gw = baseW * zoom, gh = baseH * zoom;          // 完整图在画板中的实际像素尺寸
+    const s = Math.min(boxR.width / gw, boxR.height / gh);   // 等比缩放（letterbox），取较小边
+    const drawnW = gw * s, drawnH = gh * s;
+    const offX = (boxR.width - drawnW) / 2, offY = (boxR.height - drawnH) / 2;  // 居中留白偏移
+    const vw = stage.clientWidth * s, vh = stage.clientHeight * s;
+    let vx = offX + stage.scrollLeft * s, vy = offY + stage.scrollTop * s;
+    vx = Math.max(offX, Math.min(vx, offX + drawnW - vw));
+    vy = Math.max(offY, Math.min(vy, offY + drawnH - vh));
+    const view = body.querySelector('.minimap-view');
+    view.style.left = vx + 'px'; view.style.top = vy + 'px';
+    view.style.width = vw + 'px';  view.style.height = vh + 'px';
+  });
+}
+
 // 按当前缩放比设置 SVG 尺寸（基于 viewBox 等比缩放，配合 overflow 滚动）
 function applyZoomTo(stage){
   const svg = stage.querySelector('svg');
@@ -601,7 +683,7 @@ async function generate(){
   stopPlay();
   branchMode = false; branchPreview = null;   // 清掉上一图的分支预览状态，避免切换后画板仍显示旧分支
   const code = $('src').value.trim();
-  if(!code){ $('stage').innerHTML = '<em style="color:#94a3b8">文本框为空</em>'; return; }
+  if(!code){ $('stage').innerHTML = '<em style="color:#94a3b8">文本框为空</em>'; showMinimap(false); return; }
   recordHistory(code);                                  // 点击“生成步骤并播放”即记录为最近浏览
   const type = detectDiagramType(code);
   if(type !== 'flowchart'){
@@ -609,12 +691,14 @@ async function generate(){
     try {
       const ast = parse(code);
       const { svg } = await window.mermaid.render('m'+Date.now(), quoteLabels(render(ast)));
-      $('stage').innerHTML = svg;
+      mount($('stage'), svg);
+      graphGen++;                                          // 新图：缩略导航图重新克隆一次
       $('progress').textContent = `图类型：${type || '未知'}（仅流程图支持逐步揭示，已显示完整图）`;
       $('prev').disabled = $('next').disabled = true;
       $('branches').disabled = true; $('branches').value = '';
       STEPS = [];
-    } catch(e){ $('stage').innerHTML = '<div class="err">解析失败：'+e.message+'</div>'; }
+      showMinimap(true);
+    } catch(e){ $('stage').innerHTML = '<div class="err">解析失败：'+e.message+'</div>'; showMinimap(false); }
     return;
   }
   try {
@@ -632,10 +716,11 @@ async function generate(){
     BRANCH_STEPS = branches.map(b => buildBranch(ast, b, FULL_MMD));
     populateBranchSelect();
     CUR_FULL = FULL_MMD; STEPS = GLOBAL_STEPS; FULL_SIZE = null;   // 新图：清掉上一张图的尺寸缓存
+    graphGen++;                                            // 新图：缩略导航图重新克隆一次
     selBranch = -1; renderChain();                         // 重置选中分支并渲染底部节点链表
     step = -1; await show(-1);                              // 先显示完整流程图
   } catch(e){
-    $('stage').innerHTML = '<div class="err">解析失败：'+e.message+'</div>';
+    $('stage').innerHTML = '<div class="err">解析失败：'+e.message+'</div>'; showMinimap(false);
   }
 }
 
@@ -769,7 +854,7 @@ function fitMaxTop(){
   st.style.paddingTop = '0';                      // 偏移已包含控制栏高度，避免双重留白
 }
 function setMax(on){ const st = $('stage'); st.classList.toggle('max', on); document.body.classList.toggle('maxmode', on); $('max').textContent = on ? '⛓ 退出最大化' : '⛶ 最大化'; if(on){ fitMaxTop(); requestAnimationFrame(fitMaxTop); } else { st.style.top=''; st.style.height=''; st.style.paddingTop=''; } applyZoomTo(st); }
-window.addEventListener('resize', fitMaxTop);   // 最大化中窗口缩放导致控制栏换行时，重新对齐
+window.addEventListener('resize', () => { fitMaxTop(); updateMinimap(); });   // 最大化中窗口缩放导致控制栏换行时，重新对齐，并同步缩略图
 $('max').onclick = () => setMax(!$('stage').classList.contains('max'));
 
 // 操作指引弹窗
@@ -982,6 +1067,7 @@ function setZoom(z){
   $('zoom').value = z;
   $('zoomVal').value = z;
   applyZoomTo($('stage'));
+  updateMinimap();
 }
 $('zoom').oninput = e => setZoom(+e.target.value);
 $('zoomVal').onchange = e => setZoom(+e.target.value || 100);
@@ -1017,6 +1103,7 @@ let panMode = true;
     if(idx >= 0){ stopPlay(); step = idx; show(idx); }   // 关键：同步 step，否则底部链表高亮不跟随
   }
 })();
+$('stage').addEventListener('scroll', updateMinimap);   // 画板滚动时同步缩略图视口框
 $('tool').onclick = () => {                          // 切换 拖动 / 选择 工具
   panMode = !panMode;
   $('stage').classList.toggle('selmode', !panMode);
