@@ -155,6 +155,9 @@
       <span class="progress" id="progress"></span>
     </div>
     <div class="stage" id="stage"><em style="color:#94a3b8">请先生成步骤</em></div>
+    <div class="row" style="margin-top:12px;">
+      <button class="ghost" id="copyChain" title="拷贝当前已运行到的节点列表（用 > 连接）">⧉ 拷贝节点列表</button>
+    </div>
     <div class="chain" id="chain"></div>
   </div>
 </div>
@@ -169,6 +172,7 @@
       <li><b>缩放</b>：拖动“缩放”滑条或手动输入百分比，也可在滑条/输入框上滚轮缩放。</li>
       <li><b>最大化</b>：点“⛶ 最大化”铺满画板，按 <kbd>Esc</kbd> 退出。</li>
       <li><b>画布工具</b>：点“✋ 拖动视图 / ⚲ 选择节点”切换。拖动工具下左键按住拖动画板平移视口；选择工具下可点选/选中画布节点里的文字内容（不再平移）。任意工具下<strong>双击</strong>画布节点即跳到该节点并激活（底部链表同步高亮）。</li>
+      <li><b>拷贝节点列表</b>：点画板下方的“⧉ 拷贝节点列表”，把<strong>当前已运行到的节点</strong>（首节点到当前步）以 <code> &gt; </code> 连接的形式复制到剪贴板，方便粘贴成路径文本。</li>
       <li><b>键盘快捷键</b>：<kbd>←</kbd> 上一步，<kbd>→</kbd> 下一步，<kbd>空格</kbd> 播放/暂停，<kbd>Esc</kbd> 关闭本指引 / 退出最大化。</li>
       <li><b>颜色含义</b>：绿色=当前分支路径（流动），橙色虚线=回边/循环，橙色脉冲=当前节点，淡灰=其它已揭示节点。</li>
       <li><b>含环图</b>：遇到回边/环会按简单路径拆分分支并提示，不会卡死。</li>
@@ -478,6 +482,31 @@ $('chain').addEventListener('wheel', e => {
     e.preventDefault();
   }
 }, { passive:false });
+
+// 拷贝当前已运行到的节点列表（用 > 连接）：从首节点到当前 step（含），取节点显示名
+function copyNodeList(){
+  const n = STEPS.length;
+  if(n === 0){ alert('请先生成步骤'); return; }
+  const end = step >= 0 ? step : n - 1;
+  const ids = [];
+  for(let i = 0; i <= end && i < n; i++) ids.push(STEPS[i].currentId);
+  const txt = ids.map(id => NODE_TEXT.get(id) || id).join(' > ');
+  const finish = ok => {
+    const btn = $('copyChain');
+    const old = btn.textContent;
+    btn.textContent = ok ? '✓ 已复制' : '✗ 复制失败';
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(() => finish(true), () => finish(false));
+  } else {
+    const ta = document.createElement('textarea'); ta.value = txt;
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); finish(true); } catch(_) { finish(false); }
+    ta.remove();
+  }
+}
+$('copyChain') && ($('copyChain').onclick = copyNodeList);
 
 // 挂载 SVG 并记录基准尺寸，再按当前缩放比应用
 function mount(stage, svgStr){
