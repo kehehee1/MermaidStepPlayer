@@ -67,7 +67,9 @@
                   border-radius:999px; background:#f1f5f9; color:#334155; cursor:pointer;
                   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
    .chain .chip:hover { background:#e2e8f0; }
-   .chain .chip.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .chain .chip.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    /* 公共节点：底部链表中以紫色描边标出（提示“与其他分支共用”）；仅改 UI 链表，不动画布节点的渲染 */
+    .chain .chip.shared { border-color:#7c3aed; color:#5b21b6; }
    .chain .sep { flex:0 0 auto; color:#94a3b8; margin:0 6px; user-select:none; }
    body.maxmode .chain { position:fixed; left:0; right:0; bottom:0; z-index:10000;
                          margin-top:0; border-radius:0; border-left:none; border-right:none; border-bottom:none; }
@@ -85,6 +87,7 @@
   .dimNode ellipse, .dimNode path {
     fill:#eef2f7 !important; stroke:#cbd5e1 !important; stroke-width:1px !important;
   }
+
   /* 当前节点：在绿色基础上加脉冲光晕（不改填充色，保持分支内一致） */
   .curNode { animation: nodePulse 1.1s ease-in-out infinite; }
   /* 脚本行悬浮定位时的临时高亮：橙色描边 + 光晕，2 秒后移除（不改变节点填充色，不干扰分支绿/淡灰配色） */
@@ -186,14 +189,14 @@
       <li><b>生成步骤</b>：左侧粘贴 <code>flowchart</code>/<code>graph</code> 代码，点“生成步骤并播放”，先展示完整流程图。</li>
       <li><b>逐步揭示</b>：点“下一步 / 上一步”，或“自动播放”按深度优先顺序逐步高亮节点与边。</li>
       <li><b>分支演示</b>：右侧“分支”下拉框选某条分支（源→汇的简单路径），整条分支绿色高亮并逐步演示；选“全部（深度优先）”回到总览。</li>
-      <li><b>缩放</b>：拖动“缩放”滑条或手动输入百分比，也可在滑条/输入框上滚轮缩放。</li>
+       <li><b>缩放</b>：拖动“缩放”滑条或手动输入百分比，或在滑条/输入框上滚轮缩放；也可直接<strong>在画板内滚动鼠标滚轮</strong>以光标为中心放大/缩小图形（按住 Shift + 滚轮则为横向平移）。</li>
       <li><b>最大化</b>：点“⛶ 最大化”铺满画板，按 <kbd>Esc</kbd> 退出。</li>
       <li><b>画布工具</b>：点“✋ 拖动视图 / ⚲ 选择节点”切换。拖动工具下左键按住拖动画板平移视口；选择工具下可点选/选中画布节点里的文字内容（不再平移）。任意工具下<strong>双击</strong>画布节点即跳到该节点并激活（底部链表同步高亮）。</li>
       <li><b>拷贝节点列表</b>：点画板下方的“⧉ 拷贝节点列表”，把<strong>当前已运行到的节点</strong>（首节点到当前步）以 <code> &gt; </code> 连接的形式复制到剪贴板，方便粘贴成路径文本。</li>
        <li><b>脚本行点击定位</b>：图已生成后，<strong>点击</strong>左侧源码编辑框的某一行（光标落在哪行），画板即滚动到该行对应的节点并<strong>橙色高亮 2 秒</strong>（不改变配色、不重渲染，开销极低）。优先定位行内<strong>被描述的目标节点</strong>：如 `A --> B["初始化 report 对象"]` 会定位到带描述的 B，而非裸源节点 A；在编辑框内移动鼠标不会触发，仅点击时执行。</li>
        <li><b>缩略导航图</b>：生成图形后画板左下角出现固定尺寸的缩略图，蓝色边框标出画板<strong>当前可见区域</strong>（随滚动/缩放实时移动）；<strong>点击缩略图任意位置</strong>即可把画板滚动到对应位置居中；点标题栏「缩略导航」可<strong>收起/展开</strong>。最大化时缩略图相对视口固定，不随画板滚动而移动。</li>
        <li><b>键盘快捷键</b>：<kbd>←</kbd> 上一步，<kbd>→</kbd> 下一步，<kbd>空格</kbd> 播放/暂停，<kbd>Esc</kbd> 关闭本指引 / 退出最大化。</li>
-      <li><b>颜色含义</b>：绿色=当前分支路径（流动），橙色虚线=回边/循环，橙色脉冲=当前节点，淡灰=其它已揭示节点。</li>
+        <li><b>颜色含义</b>：绿色=当前分支路径（流动），橙色虚线=回边/循环，橙色脉冲=当前节点，淡灰=其它已揭示节点。<strong>存在分支时</strong>：与其他分支共用的<strong>公共节点</strong>（S/G/M/E 等）不会重复播放。在<strong>全局（深度优先）模式</strong>逐步播放时，公共节点在<strong>不同于其首次出现所在分支</strong>的后续分支步骤中被“跳过”时，才以<strong>自身形状加紫色虚线描边</strong>凸显（其首次正常揭示时不显、未走到那里时也不显，分支模式不显）；底部节点链表始终以紫色描边标出（画布节点本身的绿/灰填充样式始终不变）。</li>
       <li><b>含环图</b>：遇到回边/环会按简单路径拆分分支并提示，不会卡死。</li>
        <li><b>导出播放文件</b>：先选“格式”（独立 HTML 播放文件 / GIF 动图），再点“⤓ 导出播放文件”。HTML 模式生成只含右侧播放界面、已内嵌当前图的独立 HTML，可直接发给他人播放（仍需联网加载渲染库）；GIF 模式把逐步揭示的每一步渲染成帧、编码为动画 GIF，可直接插入 PPT/文档（导出时需联网加载渲染库与 gif.js）。</li>
     </ul>
@@ -255,7 +258,7 @@ function quoteLabels(mmd){
   return mmd;
 }
 
-let STEPS = [], GLOBAL_STEPS = [], BRANCH_STEPS = [], branches = [], branchMode = false, branchPreview = null, step = 0, timer = null, FULL_MMD = '', CUR_FULL = '', zoom = 1, baseW = 0, baseH = 0, cyclic = false, backEdges = new Set();
+let STEPS = [], GLOBAL_STEPS = [], BRANCH_STEPS = [], branches = [], branchMode = false, branchPreview = null, step = 0, timer = null, FULL_MMD = '', CUR_FULL = '', zoom = 1, baseW = 0, baseH = 0, cyclic = false, backEdges = new Set(), SHARED = new Set(), SHARED_FIRST = new Map(), CUR_AST = null, everRevealed = new Set();
 // 底部节点链表用：节点实际文本（mermaid 标签）、当前选中的分支索引
 let NODE_TEXT = new Map(), selBranch = -1;
 // 脚本行→节点 映射（点击定位用）：lineNodeMap[行号] = 该行出现的节点 id 列表；hlTimer/hlEl 为点击定位的高亮计时
@@ -324,9 +327,18 @@ function edgeIndices(mmd){
 
 function buildSteps(ast, fullMmd){
   const { order, parent, subChildren } = dfsOrder(ast);
+  // 全局 DFS 中“分支段”划分：连续两步若满足 parent(当前)===上一步，说明是向下延伸（同一分支）；
+  // 否则是回溯后另选分支（新分支段起点）。公共节点仅在其“首次出现的分支段”之外被凸显。
+  let seg = 0;
+  const segs = new Array(order.length).fill(0);
+  for(let i = 1; i < order.length; i++){
+    if(parent.get(order[i]) === order[i-1]) segs[i] = seg;
+    else { seg++; segs[i] = seg; }
+  }
   const steps = [];
   const revealed = new Set();
   const allNodes = new Set(ast.nodes.keys());
+  let k = 0;
   for(const id of order){
     revealed.add(id);
     // 当前分支 = 树路径(当前节点→根) + 路径上每个子图容器已揭示的内部节点（上游子图历史保持高亮，
@@ -345,7 +357,8 @@ function buildSteps(ast, fullMmd){
     })(id);
     const branchEdges = [];
     for(const l of ast.links) if(branchNodes.has(l.source) && branchNodes.has(l.target)) branchEdges.push([l.source, l.target]);
-    steps.push({ mmd: fullMmd, currentId:id, branchNodes, branchEdges, revealedNodes:new Set(revealed), allNodes });
+    steps.push({ mmd: fullMmd, currentId:id, branchNodes, branchEdges, revealedNodes:new Set(revealed), allNodes, seg: segs[k] });
+    k++;
   }
   return steps;
 }
@@ -404,6 +417,15 @@ function findBranches(ast){
   return { branches, cyclic, backEdges };
 }
 
+// 计算“公共节点”：出现在多于一条分支路径上的节点（汇交点及前后被多条分支共用的节点）
+function computeShared(bs){
+  const cnt = new Map();
+  for(const b of bs) for(const id of b.path) cnt.set(id, (cnt.get(id) || 0) + 1);
+  const set = new Set();
+  for(const [id, c] of cnt) if(c > 1) set.add(id);
+  return set;
+}
+
 // 分支数据：preview=整条分支高亮（静态预览，无脉冲）；steps=按路径逐步演示
 function buildBranch(ast, branch, fullMmd){
   const allNodes = new Set(ast.nodes.keys());
@@ -452,7 +474,17 @@ async function show(i){
   }
   const s = STEPS[i];
   await renderStep(stage, s);
-  $('progress').textContent = `步骤 ${i+1}/${STEPS.length}（当前：${s.currentId}）`;
+  // 全局（深度优先）模式：在第 2 个及之后的分支段中，凸显那些“首次出现在更早分支段、本次被跳过”的公共节点
+  // （即 S/G/M/E 等在后续分支里不再重复播放、以紫色虚线描边标出）。规则：公共节点且首次揭示步序 < 当前步，
+  // 且首次所在分支段 ≠ 当前分支段；其自身首次正常揭示（同一分支段内）不凸显；分支模式不凸显。
+  if(!branchMode){
+    for(const id of SHARED){
+      const f = SHARED_FIRST.get(id);
+      if(f && f.step < i && f.seg !== s.seg) highlightSkippedNode(stage, id);
+    }
+  }
+  const sharedNote = (!branchMode && SHARED.has(s.currentId)) ? '（公共节点：与其他分支共用，不重复播放）' : '';
+  $('progress').textContent = `步骤 ${i+1}/${STEPS.length}（当前：${s.currentId}）${sharedNote}`;
   $('prev').disabled = i === 0;
   $('next').disabled = i === STEPS.length-1;
   updateChainActive();
@@ -471,8 +503,9 @@ function renderChain(){
     if(i > 0){ const sep = document.createElement('span'); sep.className = 'sep'; sep.textContent = '>'; el.appendChild(sep); }
     const chip = document.createElement('span');
     chip.className = 'chip'; chip.dataset.id = id;
+    if(SHARED.has(id)) chip.classList.add('shared');   // 公共节点：底部链表中以紫色描边标出（不动画布节点）
     chip.textContent = NODE_TEXT.get(id) || id;
-    chip.title = NODE_TEXT.get(id) || id;     // 完整文本悬停可见
+    chip.title = (NODE_TEXT.get(id) || id) + (SHARED.has(id) ? '（公共节点：与其他分支共用）' : '');     // 完整文本悬停可见
     el.appendChild(chip);
   });
   updateChainActive();
@@ -602,6 +635,18 @@ function mount(stage, svgStr){
   }
   applyZoomTo(stage);
 }
+// 播放到被“跳过”的共享节点时，给它自身形状（矩形/菱形/圆等）加紫色虚线描边凸显：
+// 贴合节点原形状、不另画方框、不改填充色。用 inline !important 确保覆盖 .branchNode rect 等带 !important 的配色。
+function highlightSkippedNode(stage, id){
+  const g = stage.querySelector('g.node[id^="flowchart-'+id+'-"]');
+  if(!g) return;
+  g.querySelectorAll('rect, polygon, circle, ellipse, path').forEach(sh => {
+    if(sh.closest('.label')) return;            // 跳过节点内的文字标签
+    sh.style.setProperty('stroke', '#7c3aed', 'important');
+    sh.style.setProperty('stroke-width', '3px', 'important');
+    sh.style.setProperty('stroke-dasharray', '5 3', 'important');
+  });
+}
 
 // ===== 缩略导航图：画板左下角浮层，展示完整图缩略，并标出当前视口位置；可收起/展开，点击跳转 =====
 let minimapEl = null, minimapSig = -1, graphGen = 0;
@@ -612,6 +657,7 @@ function buildMinimap(){
   el.innerHTML = '<div class="minimap-head"><span>缩略导航</span><span class="minimap-toggle">▾</span></div>'
                + '<div class="minimap-body"><div class="minimap-view"></div></div>';
   el.addEventListener('mousedown', e => e.stopPropagation());   // 不触发画板拖拽平移
+  el.addEventListener('wheel', e => e.stopPropagation(), { passive:false });   // 缩略图上的滚轮不触发画板缩放
   el.querySelector('.minimap-head').addEventListener('click', () => {
     el.classList.toggle('collapsed');
     el.querySelector('.minimap-toggle').textContent = el.classList.contains('collapsed') ? '▸' : '▾';
@@ -749,7 +795,7 @@ function togglePlay(){ timer?stopPlay():startPlay(); }
 
 async function generate(){
   stopPlay();
-  branchMode = false; branchPreview = null;   // 清掉上一图的分支预览状态，避免切换后画板仍显示旧分支
+  branchMode = false; branchPreview = null; branches = []; SHARED = new Set(); everRevealed = new Set();   // 清掉上一图的分支/公共节点状态，避免切换后残留旧数据
   const code = $('src').value.trim();
   if(!code){ $('stage').innerHTML = '<em style="color:#94a3b8">文本框为空</em>'; showMinimap(false); return; }
   recordHistory(code);                                  // 点击“生成步骤并播放”即记录为最近浏览
@@ -771,6 +817,7 @@ async function generate(){
   }
   try {
     const ast = parseFlowchart(code);
+    CUR_AST = ast;   // 保存 AST 供全局模式逐步播放时判断“当前边是否指向已揭示的公共节点（被跳过）”
     NODE_TEXT = new Map();                                 // 节点 id → mermaid 实际标签文本
     for(const [id,n] of ast.nodes) NODE_TEXT.set(id, (n.text && n.text.text != null) ? String(n.text.text) : id);
     if(Array.isArray(ast.subgraphs)) for(const sg of ast.subgraphs){   // 子图容器不在 ast.nodes，标题在 sg.title
@@ -780,8 +827,12 @@ async function generate(){
     FULL_MMD = quoteLabels(renderFlowchart(ast));          // 完整图，供总览/重置使用
     const fb = findBranches(ast);
     branches = fb.branches; cyclic = fb.cyclic; backEdges = fb.backEdges;  // 含环图不再爆栈；backEdges 用于把回边标成循环边
+    SHARED = computeShared(branches);   // 计算公共节点（出现在多条分支路径上），供“共用”标记使用
     GLOBAL_STEPS = buildSteps(ast, FULL_MMD);
     BRANCH_STEPS = branches.map(b => buildBranch(ast, b, FULL_MMD));
+    // 记录每个公共节点“首次被揭示”所在的分支段（seg）与步序，供全局模式凸显“被跳过”的公共节点使用
+    SHARED_FIRST = new Map();
+    GLOBAL_STEPS.forEach((s, i) => { if(SHARED.has(s.currentId)) SHARED_FIRST.set(s.currentId, { seg: s.seg, step: i }); });
     populateBranchSelect();
     CUR_FULL = FULL_MMD; STEPS = GLOBAL_STEPS; FULL_SIZE = null;   // 新图：清掉上一张图的尺寸缓存
     graphGen++;                                            // 新图：缩略导航图重新克隆一次
@@ -796,7 +847,7 @@ async function generate(){
 $('gen').onclick = generate;
 $('next').onclick = ()=>{ stopPlay(); step = step === -1 ? 0 : (step < STEPS.length-1 ? step+1 : step); show(step); };
 $('prev').onclick = ()=>{ stopPlay(); step = step > 0 ? step-1 : -1; show(step); };
-$('reset').onclick = ()=>{ stopPlay(); branchMode=false; branchPreview=null; selBranch=-1; $('branches').value=''; STEPS = GLOBAL_STEPS; CUR_FULL = FULL_MMD; step=-1; renderChain(); show(-1); };
+$('reset').onclick = ()=>{ stopPlay(); branchMode=false; branchPreview=null; selBranch=-1; everRevealed = new Set(); $('branches').value=''; STEPS = GLOBAL_STEPS; CUR_FULL = FULL_MMD; step=-1; renderChain(); show(-1); };
 $('play').onclick = togglePlay;
 $('samples').onchange = e => { $('src').value = SAMPLES[+e.target.value]; };
 
@@ -1011,7 +1062,7 @@ const CAPTURE_CSS = `
 .branch-edge{stroke:#27ae60 !important;stroke-width:4px !important;}
 .dim-edge{stroke:#cbd5e1 !important;stroke-width:1px !important;}
 .cycle-edge{stroke:#f59e0b !important;stroke-width:3px !important;stroke-dasharray:6 5 !important;}
-.dimNode rect,.dimNode polygon,.dimNode circle,.dimNode ellipse,.dimNode path{fill:#eef2f7 !important;stroke:#cbd5e1 !important;stroke-width:1px !important;}
+ .dimNode rect,.dimNode polygon,.dimNode circle,.dimNode ellipse,.dimNode path{fill:#eef2f7 !important;stroke:#cbd5e1 !important;stroke-width:1px !important;}
 .curNode rect,.curNode polygon,.curNode circle,.curNode ellipse,.curNode path{stroke:#ef8354 !important;stroke-width:3px !important;}
 `;
 
@@ -1130,19 +1181,38 @@ window.addEventListener('keydown', e => {
 });
 
 // 缩放：滑条拖动 / 手动输入 / 滚轮 三种方式，均同步显示当前比例
-function setZoom(z){
+// anchor（可选）= 滚轮缩放时光标在视口内的坐标，缩放后保持该点对应的图形位置不动（以光标为中心放大/缩小）
+function setZoom(z, anchor){
   z = Math.max(10, Math.min(300, Math.round(z)));
+  const stage = $('stage');
+  const old = zoom;
   zoom = z / 100;
   $('zoom').value = z;
   $('zoomVal').value = z;
-  applyZoomTo($('stage'));
+  if(anchor && baseW && baseH && old > 0){
+    const r = stage.getBoundingClientRect();
+    const cx = anchor.x - r.left, cy = anchor.y - r.top;
+    const gx = stage.scrollLeft + cx, gy = stage.scrollTop + cy;   // 光标下图形像素坐标（旧比例）
+    applyZoomTo(stage);
+    stage.scrollLeft = gx * (zoom / old) - cx;                     // 维持光标下的图形点仍落在光标处
+    stage.scrollTop  = gy * (zoom / old) - cy;
+  } else {
+    applyZoomTo(stage);
+  }
   updateMinimap();
 }
 $('zoom').oninput = e => setZoom(+e.target.value);
 $('zoomVal').onchange = e => setZoom(+e.target.value || 100);
-// 滚轮缩放仅作用于缩放控件（滑块/输入框），画板内滚轮恢复为正常滚动/平移
+// 控件上的滚轮缩放
 $('zoom').addEventListener('wheel', e => { e.preventDefault(); setZoom(zoom * 100 * (e.deltaY < 0 ? 1.1 : 0.9)); }, { passive:false });
 $('zoomVal').addEventListener('wheel', e => { e.preventDefault(); setZoom(zoom * 100 * (e.deltaY < 0 ? 1.1 : 0.9)); }, { passive:false });
+// 画板内滚轮直接缩放图形（以光标为中心）；按住 Shift 时改为横向滚动，便于平移超大图
+$('stage').addEventListener('wheel', e => {
+  if(!baseW || !baseH) return;
+  if(e.shiftKey){ return; }                       // Shift+滚轮：保留默认横向滚动（平移）
+  e.preventDefault();
+  setZoom(zoom * 100 * (e.deltaY < 0 ? 1.1 : 0.9), { x:e.clientX, y:e.clientY });
+}, { passive:false });
 // 画布工具：panMode=true 左键拖拽平移视口；false 为选择工具（点选节点内文字，不激活）；双击节点任意工具下都激活
 let panMode = true;
 (function enablePan(){
