@@ -818,10 +818,13 @@ async function generate(){
   recordHistory(code);                                  // 点击“生成步骤并播放”即记录为最近浏览
   const type = detectDiagramType(code);
   if(type !== 'flowchart'){
-    // 非流程图：直接渲染完整图，不做逐步揭示
+    // 非流程图：直接交给 mermaid 官方引擎渲染完整图（不做逐步揭示）。
+    // 不再经过 mermaid-ast 的“解析→回写”中间层：它对部分合法 classDiagram（<<中文注解>>、特殊关系箭头等）
+    // 比 mermaid 更严格，回写结果一旦被 mermaid 拒收，会在 body 留下 “Syntax error in text ...” 节点、顶高页面。
+    const id = 'm'+Date.now();
     try {
-      const ast = parse(code);
-      const { svg } = await window.mermaid.render('m'+Date.now(), quoteLabels(render(ast)));
+      const { svg } = await window.mermaid.render(id, code);
+      const tmp = document.getElementById(id); if (tmp) tmp.remove();   // 清掉 mermaid 的临时渲染容器，避免堆积
       mount($('stage'), svg);
       graphGen++;                                          // 新图：缩略导航图重新克隆一次
       $('progress').textContent = `图类型：${type || '未知'}（仅流程图支持逐步揭示，已显示完整图）`;
@@ -829,7 +832,12 @@ async function generate(){
       $('branches').disabled = true; $('branches').value = '';
       STEPS = [];
       showMinimap(true);
-    } catch(e){ $('stage').innerHTML = '<div class="err">解析失败：'+e.message+'</div>'; showMinimap(false); }
+    } catch(e){
+      // 兜底：清掉 mermaid 失败时可能残留在 body 上的报错节点，再提示
+      const tmp = document.getElementById(id); if (tmp) tmp.remove();
+      document.querySelectorAll('body > div').forEach(d => { if (d.textContent && d.textContent.includes('Syntax error in text')) d.remove(); });
+      $('stage').innerHTML = '<div class="err">解析失败：'+e.message+'</div>'; showMinimap(false);
+    }
     return;
   }
   try {
