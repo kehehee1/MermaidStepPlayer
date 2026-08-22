@@ -258,7 +258,7 @@ function quoteLabels(mmd){
   return mmd;
 }
 
-let STEPS = [], GLOBAL_STEPS = [], BRANCH_STEPS = [], branches = [], branchMode = false, branchPreview = null, step = 0, timer = null, FULL_MMD = '', CUR_FULL = '', zoom = 1, baseW = 0, baseH = 0, cyclic = false, backEdges = new Set(), SHARED = new Set(), SHARED_FIRST = new Map(), CUR_AST = null, everRevealed = new Set();
+let STEPS = [], GLOBAL_STEPS = [], BRANCH_STEPS = [], branches = [], branchMode = false, branchPreview = null, step = 0, timer = null, FULL_MMD = '', CUR_FULL = '', zoom = 1, baseW = 0, baseH = 0, cyclic = false, loopDemo = false, backEdges = new Set(), SHARED = new Set(), SHARED_FIRST = new Map(), CUR_AST = null, everRevealed = new Set();
 // 底部节点链表用：节点实际文本（mermaid 标签）、当前选中的分支索引
 let NODE_TEXT = new Map(), selBranch = -1;
 // 脚本行→节点 映射（点击定位用）：lineNodeMap[行号] = 该行出现的节点 id 列表；hlTimer/hlEl 为点击定位的高亮计时
@@ -325,7 +325,133 @@ function edgeIndices(mmd){
   return out;
 }
 
+function detectCycle(ast){
+  const links = ast.links.filter(l => (l.stroke || 'normal') !== 'dotted');
+  const adj = new Map();
+  for(const id of ast.nodes.keys()) adj.set(id, []);
+  links.forEach(l => adj.get(l.source).push(l.target));
+  let idx = 0;
+  const index = new Map(), low = new Map(), onStack = new Set(), stack = [], sccs = [];
+  const sc = u => {
+    index.set(u, idx); low.set(u, idx); idx++; stack.push(u); onStack.add(u);
+    for(const v of adj.get(u)){
+      if(!index.has(v)){ sc(v); low.set(u, Math.min(low.get(u), low.get(v))); }
+      else if(onStack.has(v)){ low.set(u, Math.min(low.get(u), index.get(v))); }
+    }
+    if(low.get(u) === index.get(u)){
+      const comp = []; let w;
+      do { w = stack.pop(); onStack.delete(w); comp.push(w); } while(w !== u);
+      sccs.push(comp);
+    }
+  };
+  for(const id of ast.nodes.keys()) if(!index.has(id)) sc(id);
+  const cycleNodes = new Set();
+  for(const c of sccs) if(c.length > 1) c.forEach(x => cycleNodes.add(x));
+  for(const l of links) if(l.source === l.target) cycleNodes.add(l.source);   // 自环也视为环
+  if(cycleNodes.size === 0) return null;
+  return { cycleNodes, sccs };
+}
+
+// 选根：与 dfsOrder 一致，优先“非子图内部节点”的入度为 0 节点
+function pickRoot(ast){
+  const indeg = new Map();
+  for(const id of ast.nodes.keys()) indeg.set(id, 0);
+  for(const l of ast.links) indeg.set(l.target, (indeg.get(l.target) || 0) + 1);
+  const internal = new Set();
+  if(Array.isArray(ast.subgraphs)) for(const sg of ast.subgraphs) for(const n of sg.nodes) internal.add(n);
+  return [...indeg.entries()].find(([id, d]) => d === 0 && !internal.has(id))?.[0]
+      ?? [...indeg.entries()].find(([, d]) => d === 0)?.[0]
+      ?? [...ast.nodes.keys()][0];
+}
+
+// 含环图的步骤：真正“走一遍循环”而非静态高亮。做法：
+// 1) 前缀 = 根到循环起点的最短路径（只揭示进入循环前的节点，不提前展开环）；
+// 2) 循环体 = 从循环起点沿回边走回出口（M→A→T→A→D），第 1 轮；
+// 3) 回边返回 = 出口沿回边回到起点（D→M，[RETURN]），这正是“环”被演示的关键一步；
+// 4) 循环体第 2 轮（M→A→T→A→D），随后走向终结节点（R）。
+// 每一步都用“累计已揭示”作为高亮集合，故 Q 等前置节点始终保持激活(绿色)，不会被清空；
+// 循环只演示一次（回边仅回退一轮），不会无限播放。
+function loopWalkClosed(start, isCycle, adj, cycleNodes){
+  const closed = [], visited = new Set();
+  const allVis = () => { for(const c of cycleNodes) if(!visited.has(c)) return false; return true; };
+  function dfs(u, prev){
+    closed.push(u); visited.add(u);
+    if(u === start && closed.length > 1 && allVis()) return true;
+    const nbrs = (adj.get(u) || []).filter(v => isCycle(v));
+    for(const v of nbrs) if(v !== prev && v !== start && !visited.has(v)){ if(dfs(v, u)) return true; }
+    if(start !== prev && nbrs.includes(start) && allVis()){ if(dfs(start, u)) return true; }
+    if(prev != null && nbrs.includes(prev)){ if(dfs(prev, u)) return true; }
+    closed.pop(); visited.delete(u);
+    return false;
+  }
+  dfs(start, null);
+  return closed;
+}
+
+function buildCyclicSteps(ast, fullMmd, cyc){
+  const allNodes = new Set(ast.nodes.keys());
+  const isCycle = id => cyc.cycleNodes.has(id);
+  const adj = new Map();
+  for(const id of ast.nodes.keys()) adj.set(id, []);
+  ast.links.filter(l => (l.stroke || 'normal') !== 'dotted').forEach(l => adj.get(l.source).push(l.target));
+  // 出口（决策点）：有边流出环外的环上节点；循环起点：该出口回边所指向的环上节点
+  let exitNode = null;
+  for(const id of cyc.cycleNodes){ if(ast.links.some(l => l.source === id && !isCycle(l.target))){ exitNode = id; break; } }
+  let loopStart = exitNode;
+  if(exitNode != null){
+    const be = ast.links.find(l => l.source === exitNode && isCycle(l.target));
+    if(be) loopStart = be.target;
+  }
+  if(loopStart == null) loopStart = [...cyc.cycleNodes][0];
+  // 前缀：根 → 循环起点 的最短路径（只揭示进入循环前的节点）
+  const prefix = (() => {
+    const root = pickRoot(ast);
+    const prev = new Map(), q = [root], seen = new Set([root]);
+    while(q.length){ const u = q.shift(); if(u === loopStart) break; for(const v of adj.get(u)){ if(!seen.has(v)){ seen.add(v); prev.set(v, u); q.push(v); } } }
+    const path = []; let c = loopStart; while(c !== undefined){ path.unshift(c); if(c === root) break; c = prev.get(c); }
+    return path;
+  })();
+  // 循环体（闭环去掉末位起点）：从起点走到出口，含所有回边
+  const body = loopWalkClosed(loopStart, isCycle, adj, cyc.cycleNodes).slice(0, -1);
+  // 终结路径：出口 → 环外汇点（不再走回边，避免无限）
+  const terminal = [], tvis = new Set();
+  const tDfs = u => { for(const v of adj.get(u)){ if(isCycle(v)) continue; if(tvis.has(v)) continue; tvis.add(v); terminal.push(v); tDfs(v); } };
+  for(const v of adj.get(exitNode || loopStart)){ if(!isCycle(v) && !tvis.has(v)){ tvis.add(v); terminal.push(v); tDfs(v); } }
+  // 组装序列：前缀 → 第1轮 → 回边返回(起点) → 第2轮 → 终结
+  const seq = [];
+  for(const id of prefix) seq.push({ id, tag: null });
+  for(const id of body) seq.push({ id, tag: { loop: true, loopIter: 1 } });
+  body.forEach((id, i) => seq.push({ id, tag: i === 0 ? { loopBack: true } : { loop: true, loopIter: 2 } }));
+  for(const id of terminal) seq.push({ id, tag: null });
+  // 合并相邻同节点（保留靠后的 tag），避免无意义的重复步
+  const ded = [];
+  for(const it of seq){
+    if(ded.length && ded[ded.length - 1].id === it.id){ if(it.tag) ded[ded.length - 1].tag = it.tag; }
+    else ded.push({ id: it.id, tag: it.tag });
+  }
+  const steps = [], revealed = new Set();
+  for(const it of ded){
+    revealed.add(it.id);
+    const branchNodes = new Set(revealed);
+    const branchEdges = [];
+    for(const l of ast.links) if(branchNodes.has(l.source) && branchNodes.has(l.target)) branchEdges.push([l.source, l.target]);
+    steps.push(Object.assign({ mmd: fullMmd, currentId: it.id, branchNodes, branchEdges, revealedNodes: new Set(revealed), allNodes, seg: 0 }, it.tag || {}));
+  }
+  return steps;
+}
+
+function isSimpleSingleLoop(cyc){
+  return cyc.sccs.filter(c => c.length > 1).length <= 1;
+}
+
 function buildSteps(ast, fullMmd){
+  const cyc = detectCycle(ast);
+  // 仅当图中至多只有一个“多节点环”（单个 SCC）时才启用“循环演示”模式：该模式把环内节点当作单一循环体、
+  // 在“终止路径”遍历中对环内后继用 isCycle(v) 跳过，只适用于结构简单的单环图。
+  // 多环（如含 H/R/W 三个循环的图）或环上带复杂分支时，单循环模型会误判分支节点为环内节点，
+  // 导致决策节点（如 W1“文件路径为空”）不沿分支走、直接跳到相邻节点（如 X“输出合并完成日志”）。
+  // 此类复杂图回退到普通 DFS 顺序：每个节点只访问一次、回边不再下钻，分支按边序正确跟随。
+  if(cyc && isSimpleSingleLoop(cyc)) return buildCyclicSteps(ast, fullMmd, cyc);
   const { order, parent, subChildren } = dfsOrder(ast);
   // 全局 DFS 中“分支段”划分：连续两步若满足 parent(当前)===上一步，说明是向下延伸（同一分支）；
   // 否则是回溯后另选分支（新分支段起点）。公共节点仅在其“首次出现的分支段”之外被凸显。
@@ -481,7 +607,7 @@ async function show(i){
     } else {
       const { svg } = await renderMermaid(CUR_FULL);
       mount(stage, svg);
-      $('progress').textContent = (cyclic ? '检测到回边/环，已按简单路径拆分分支；' : '') + '完整流程图（点击“下一步”或“自动播放”开始逐步揭示）';
+      $('progress').textContent = (loopDemo ? '检测到单环，将把循环体播放一遍并演示回边返回（不无限循环）；' : (cyclic ? '检测到多环/复杂环结构，已回退为普通 DFS 顺序逐步揭示（分支仍按边序正确跟随）；' : '')) + '完整流程图（点击“下一步”或“自动播放”开始逐步揭示）';
     }
     $('prev').disabled = true;
     $('next').disabled = STEPS.length === 0;
@@ -501,7 +627,10 @@ async function show(i){
     }
   }
   const sharedNote = (!branchMode && SHARED.has(s.currentId)) ? '（公共节点：与其他分支共用，不重复播放）' : '';
-  $('progress').textContent = `步骤 ${i+1}/${STEPS.length}（当前：${s.currentId}）${sharedNote}`;
+  let loopNote = '';
+  if(s.loopBack) loopNote = ' ↻ 循环返回：沿回边回到起点（如 D→M），开始新一轮迭代';
+  else if(s.loop) loopNote = ` ↻ 循环（第 ${s.loopIter || 1} 轮）：重复执行“选工具→调用→判断”`;
+  $('progress').textContent = `步骤 ${i+1}/${STEPS.length}（当前：${s.currentId}）${sharedNote}${loopNote}`;
   $('prev').disabled = i === 0;
   $('next').disabled = i === STEPS.length-1;
   updateChainActive();
@@ -866,7 +995,11 @@ async function generate(){
     }
     FULL_MMD = quoteLabels(renderFlowchart(ast));          // 完整图，供总览/重置使用
     const fb = findBranches(ast);
-    branches = fb.branches; cyclic = fb.cyclic; backEdges = fb.backEdges;  // 含环图不再爆栈；backEdges 用于把回边标成循环边
+    cyclic = fb.cyclic; backEdges = fb.backEdges;  // 含环图不再爆栈；backEdges 用于把回边标成循环边
+    const cyc = detectCycle(ast);
+    loopDemo = !!cyc && isSimpleSingleLoop(cyc);   // 仅单环图才会进入“循环演示”模式；多环图回退 DFS，不演示回边返回
+    // 环图同样按“简单路径”产出分支，恢复下拉选择：分支模式是线性路径视图，与全局模式的循环演示互补。
+    branches = fb.branches;
     SHARED = computeShared(branches, ast);   // 计算公共节点（合并点上下游闭包且出现在≥2条分支路径上），供“共用”标记使用
     GLOBAL_STEPS = buildSteps(ast, FULL_MMD);
     BRANCH_STEPS = branches.map(b => buildBranch(ast, b, FULL_MMD));
