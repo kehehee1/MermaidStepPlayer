@@ -264,7 +264,7 @@ let NODE_TEXT = new Map(), selBranch = -1;
 // 脚本行→节点 映射（点击定位用）：lineNodeMap[行号] = 该行出现的节点 id 列表；hlTimer/hlEl 为点击定位的高亮计时
 let lineNodeMap = [], hlTimer = null, hlEl = null;
 // GIF 导出相关状态：放在模块顶层，导出播放文件时剥离 GIF 模块后仍需可用，否则 generate() 里的 FULL_SIZE = null 会因未声明而抛 “FULL_SIZE is not defined”
-let CAP_ID = 0, FULL_SIZE = null;
+let FULL_SIZE = null;
 
 function dfsOrder(ast){
   const indeg = new Map();
@@ -479,7 +479,7 @@ async function show(i){
       await renderStep(stage, branchPreview);
       $('progress').textContent = '分支预览：整条分支已高亮，点“下一步”开始逐步演示';
     } else {
-      const { svg } = await window.mermaid.render('m'+(Date.now()), CUR_FULL);
+      const { svg } = await renderMermaid(CUR_FULL);
       mount(stage, svg);
       $('progress').textContent = (cyclic ? '检测到回边/环，已按简单路径拆分分支；' : '') + '完整流程图（点击“下一步”或“自动播放”开始逐步揭示）';
     }
@@ -741,10 +741,25 @@ function applyZoomTo(stage){
   svg.setAttribute('height', (baseH * zoom).toFixed(2) + 'px');
 }
 
+// 封装 mermaid.render：渲染后删除其临时容器，并清理失败时可能残留在 body 上的
+// “Syntax error in text ...” 节点，避免每步 renderStep / 每次导出在 body 堆积空 div、顶高页面。
+async function renderMermaid(text){
+  const id = 'mmd-' + Date.now() + '-' + (renderMermaid._n = (renderMermaid._n || 0) + 1);
+  try {
+    const { svg } = await window.mermaid.render(id, text);
+    const tmp = document.getElementById(id); if (tmp) tmp.remove();
+    return { svg };
+  } catch(e){
+    const tmp = document.getElementById(id); if (tmp) tmp.remove();
+    document.querySelectorAll('body > div').forEach(d => { if (d.textContent && d.textContent.includes('Syntax error in text')) d.remove(); });
+    throw e;
+  }
+}
+
 // 渲染单个步骤：完整图上高亮分支节点/路径，其余淡灰，并自动跟随当前节点
 async function renderStep(stage, s){
   const oldSvg = stage.querySelector('svg');   // 挂载前记下上一帧的 SVG，用于判断“当前节点”是否真的新出现
-  const { svg } = await window.mermaid.render('m'+(Date.now()), s.mmd + '\n' + buildDirectives(s));
+  const { svg } = await renderMermaid(s.mmd + '\n' + buildDirectives(s));
   mount(stage, svg);
   // 过渡：全部模式下“当前节点”是上一帧尚未出现的新节点；分支模式下节点一直存在、只在本次染绿时触发。
   // 两种情况都只让“新节点/新染绿节点”与其相连的新分支边淡入，其余元素瞬间到位，
@@ -1103,7 +1118,7 @@ function loadScript(src){
 // 取完整图的尺寸作为所有帧的统一画布大小，保证 GIF 帧尺寸一致、画面不抖动
 async function getFullSize(){
   if(FULL_SIZE) return FULL_SIZE;
-  const { svg } = await window.mermaid.render('full'+(CAP_ID++), CUR_FULL);
+  const { svg } = await renderMermaid(CUR_FULL);
   const div = document.createElement('div'); div.innerHTML = svg;
   const s = div.querySelector('svg');
   // mermaid 给 svg 的 width/height 是 "100%"，必须用 viewBox 取真实像素尺寸
@@ -1117,7 +1132,7 @@ async function getFullSize(){
 // 把某一步渲染成 canvas：用【逐步揭示的局部图】渲染（未揭示的边/标签本就不在源码里，不会提前出现），
 // 按导出缩放 scale 等比重缩放（文字大小恒定），居中放置在统一画布上（画布=完整图尺寸×scale，不拉伸不变形）
 async function frameToCanvas(s, scale, canvasW, canvasH){
-  const { svg: svgStr } = await window.mermaid.render('cap'+(CAP_ID++), s.mmd + '\n' + buildDirectives(s));
+  const { svg: svgStr } = await renderMermaid(s.mmd + '\n' + buildDirectives(s));
   const holder = document.createElement('div'); holder.innerHTML = svgStr;
   const svg = holder.querySelector('svg');
   const bk = new Set(s.branchEdges.map(([a,b]) => a+'|'+b));
