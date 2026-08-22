@@ -366,9 +366,12 @@ function buildSteps(ast, fullMmd){
 // 分支 = 图中所有“极大简单路径（源→汇）”。每条路径的诱导子图天然是单条简单路径：
 // 恰好 1 个头节点（入度 0）、1 个叶子节点（出度 0），其余均为中间节点，不会包含别的独立分支。
 function findBranches(ast){
+  // 分支只按“实线”边计算：虚线（dotted，-.->）边多为注释 / 次要流向，若纳入会凭空造出“分支路径”，
+  // 把 C1/C2 等普通节点误判为公共节点而错误加紫色虚线凸显。
+  const links = ast.links.filter(l => (l.stroke || 'normal') !== 'dotted');
   const indeg = new Map(), out = new Map();
   for(const id of ast.nodes.keys()){ indeg.set(id, 0); out.set(id, []); }
-  ast.links.forEach(l => { indeg.set(l.target, indeg.get(l.target) + 1); out.get(l.source).push(l); });
+  links.forEach(l => { indeg.set(l.target, indeg.get(l.target) + 1); out.get(l.source).push(l); });
   const sources = [...ast.nodes.keys()].filter(id => indeg.get(id) === 0);
   const isSink = id => out.get(id).length === 0;
   const branches = [];
@@ -378,7 +381,7 @@ function findBranches(ast){
   const labelOf = path => {
     const parts = [];
     for(let i = 1; i < path.length; i++){
-      const l = ast.links.find(ll => ll.source === path[i-1] && ll.target === path[i]);
+      const l = links.find(ll => ll.source === path[i-1] && ll.target === path[i]);
       let t = (l && l.label != null && String(l.label).trim()) ? String(l.label).trim()
               : (l && l.value != null && String(l.value).trim()) ? String(l.value).trim() : '';
       if(!t) t = path[i];   // 无边标签时退回“目标节点 id”，避免都落到最后一个节点导致重名
@@ -417,12 +420,26 @@ function findBranches(ast){
   return { branches, cyclic, backEdges };
 }
 
-// 计算“公共节点”：出现在多于一条分支路径上的节点（汇交点及前后被多条分支共用的节点）
-function computeShared(bs){
+// 计算“公共节点”（被跳过、需加紫色虚线凸显的节点）：
+// 仅当节点既出现在 ≥2 条分支路径上，又处在“合并点（入度≥2）的上下游闭包”内才算——即汇交点本身，
+// 或其上游祖先（共享前缀，如 S/G）、下游子孙（共享后缀，如 E）。
+// 这样既保留 S/G/M/E 这类真正的公共节点，又排除纯扇出（如 G1 --> G2 & G3 & …，被拆成多条平行叶子路径而误判）与虚线注释边造成的假分支。
+function computeShared(bs, ast){
+  const links = ast.links.filter(l => (l.stroke || 'normal') !== 'dotted');
+  const outAdj = new Map(), inAdj = new Map(), indeg = new Map();
+  for(const id of ast.nodes.keys()){ outAdj.set(id, []); inAdj.set(id, []); indeg.set(id, 0); }
+  for(const l of links){ outAdj.get(l.source).push(l.target); inAdj.get(l.target).push(l.source); indeg.set(l.target, indeg.get(l.target) + 1); }
+  const MERGE = [...ast.nodes.keys()].filter(id => indeg.get(id) >= 2);   // 合并点：被多条分支汇聚汇入
+  // 合并点可达的下游子孙 / 能到达合并点的上游祖先（均含合并点自身）
+  const down = new Set(MERGE), up = new Set(MERGE);
+  let st = [...MERGE];
+  while(st.length){ const u = st.pop(); for(const v of outAdj.get(u)) if(!down.has(v)){ down.add(v); st.push(v); } }
+  st = [...MERGE];
+  while(st.length){ const u = st.pop(); for(const v of inAdj.get(u)) if(!up.has(v)){ up.add(v); st.push(v); } }
   const cnt = new Map();
   for(const b of bs) for(const id of b.path) cnt.set(id, (cnt.get(id) || 0) + 1);
   const set = new Set();
-  for(const [id, c] of cnt) if(c > 1) set.add(id);
+  for(const [id, c] of cnt) if(c > 1 && (down.has(id) || up.has(id))) set.add(id);
   return set;
 }
 
@@ -827,7 +844,7 @@ async function generate(){
     FULL_MMD = quoteLabels(renderFlowchart(ast));          // 完整图，供总览/重置使用
     const fb = findBranches(ast);
     branches = fb.branches; cyclic = fb.cyclic; backEdges = fb.backEdges;  // 含环图不再爆栈；backEdges 用于把回边标成循环边
-    SHARED = computeShared(branches);   // 计算公共节点（出现在多条分支路径上），供“共用”标记使用
+    SHARED = computeShared(branches, ast);   // 计算公共节点（合并点上下游闭包且出现在≥2条分支路径上），供“共用”标记使用
     GLOBAL_STEPS = buildSteps(ast, FULL_MMD);
     BRANCH_STEPS = branches.map(b => buildBranch(ast, b, FULL_MMD));
     // 记录每个公共节点“首次被揭示”所在的分支段（seg）与步序，供全局模式凸显“被跳过”的公共节点使用
