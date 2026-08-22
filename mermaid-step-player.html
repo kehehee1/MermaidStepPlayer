@@ -82,6 +82,8 @@
   .branch-edge { stroke:#27ae60 !important; stroke-width:4px !important; }
   .dim-edge   { stroke:#cbd5e1 !important; stroke-width:1px !important; }
   .cycle-edge { stroke:#f59e0b !important; stroke-width:3px !important; stroke-dasharray:6 5 !important; }
+  /* 回边“执行”时的激活态：更亮更粗的橙 + 流动虚线，与正常分支边的执行反馈一致 */
+  .cycle-edge-active { stroke:#fb923c !important; stroke-width:5px !important; stroke-dasharray:8 6; animation:dash 1s linear infinite; }
   /* 非当前分支（其他已揭示节点）：淡灰，与边一致弱化 */
   .dimNode rect, .dimNode polygon, .dimNode circle,
   .dimNode ellipse, .dimNode path {
@@ -258,7 +260,7 @@ function quoteLabels(mmd){
   return mmd;
 }
 
-let STEPS = [], GLOBAL_STEPS = [], BRANCH_STEPS = [], branches = [], branchMode = false, branchPreview = null, step = 0, timer = null, FULL_MMD = '', CUR_FULL = '', zoom = 1, baseW = 0, baseH = 0, cyclic = false, loopDemo = false, backEdges = new Set(), SHARED = new Set(), SHARED_FIRST = new Map(), CUR_AST = null, everRevealed = new Set();
+let STEPS = [], GLOBAL_STEPS = [], BRANCH_STEPS = [], branches = [], branchMode = false, branchPreview = null, step = 0, timer = null, FULL_MMD = '', CUR_FULL = '', zoom = 1, baseW = 0, baseH = 0, cyclic = false, loopDemo = false, backEdges = new Set(), ALL_EDGE_KEYS = new Set(), edgeFxTimer = null, SHARED = new Set(), SHARED_FIRST = new Map(), CUR_AST = null, everRevealed = new Set();
 // 底部节点链表用：节点实际文本（mermaid 标签）、当前选中的分支索引
 let NODE_TEXT = new Map(), selBranch = -1;
 // 脚本行→节点 映射（点击定位用）：lineNodeMap[行号] = 该行出现的节点 id 列表；hlTimer/hlEl 为点击定位的高亮计时
@@ -895,6 +897,26 @@ async function renderStep(stage, s){
   // 因此任何时刻画板都不会整片空白——不会闪白，也不会对已存在节点重复闪烁。只动 opacity，绝不碰 transform。
   const g = window.gsap;
   const nid = s.currentId;
+  const bk = new Set(s.branchEdges.map(([a,b]) => a+'|'+b));
+  // 回边执行反馈：只对“当前这一步真正走过的那条回边”加动效，而非节点碰到的所有回边。
+  // 判定“正在执行的回边”：
+  //  - 单环演示的回边返回步（loopBack）：指向当前节点（回到起点）的那条回边；
+  //  - 常规步：若 prev→current 不是真实前向边（从循环体尾部回退离开循环），则 prev 指回循环内的回边即“沿回边返回”所走的边；
+  //  - 其余情况（普通前向边）不点亮回边，避免“时机混乱”。
+  const execBack = new Set();
+  {
+    const prevId = (step > 0 && STEPS[step-1]) ? STEPS[step-1].currentId : null;
+    if(s.loopBack){
+      for(const k of backEdges){ const [a,b] = k.split('|'); if(b === nid) execBack.add(k); }
+    } else if(prevId){
+      const traversed = ALL_EDGE_KEYS.has(prevId + '|' + nid); // prev→current 是否为真实前向边
+      if(!traversed){
+        for(const k of backEdges){ const [a,b] = k.split('|'); if(a === prevId) execBack.add(k); }
+      } else if(backEdges.has(prevId + '|' + nid)){
+        execBack.add(prevId + '|' + nid); // 极少见：上一步直接沿回边前进
+      }
+    }
+  }
   if(g && nid){
     // 全部模式：节点是“新绘制”出来的（上一帧 SVG 里没有该节点）→ 触发过渡；
     // 分支模式：节点本就在完整图里，只在“本次才被染绿（成为当前分支路径）”时触发过渡，
@@ -905,16 +927,21 @@ async function renderStep(stage, s){
     // 全局/分支模式通用：节点由灰转绿（被揭示）时淡入弹出；不再依赖 branchMode 守卫，
     // 因此全图（深度优先）逐步播放也拥有与独立分支一致的“节点浮现”过渡。
     const newlyHighlighted = !wasGreen;
-    if(newlyRevealed || newlyHighlighted){
-      const bk = new Set(s.branchEdges.map(([a,b]) => a+'|'+b));
-      // 边：仅让“与当前节点相连、且属于当前分支路径”的新边淡入（不缩放，避免路径变形；
-      // 也避开分支模式下那些灰色旁路边，否则它们会跟着闪一下）
+    // 回边返回这一步节点往往早已揭示，但回边本身是新点亮的激活边，也要淡入反馈
+    if(newlyRevealed || newlyHighlighted || execBack.size){
+      // 边：仅让“与当前节点相连、且属于当前分支路径(或本次执行回边)”的新边淡入（不缩放，避免路径变形；
+      // 也避开分支模式下那些灰色旁路边，否则它们会跟着闪一下）。执行回边即使不直接连当前节点也纳入淡入。
+      const edgeKeys = new Set([...bk, ...execBack]);
       const edgeEls = [];
       stage.querySelectorAll('.flowchart-link').forEach(p => {
         const cls = p.getAttribute('class') || '';
         const ls = (cls.match(/LS-([\w-]+)/) || [])[1];
         const le = (cls.match(/LE-([\w-]+)/) || [])[1];
-        if(ls && le && (ls === nid || le === nid) && bk.has(ls+'|'+le)) edgeEls.push(p);
+        if(ls && le){
+          const k = ls + '|' + le;
+          if((ls === nid || le === nid) && edgeKeys.has(k)) edgeEls.push(p);
+          else if(execBack.has(k)) edgeEls.push(p);
+        }
       });
       // 节点：缩放+淡入“弹出”效果；只作用在外层 <g> 内部的图形/文字上，
       // 绝不碰外层 <g> 的 translate（那是 mermaid 的定位），所以不会位移。
@@ -922,11 +949,10 @@ async function renderStep(stage, s){
       const nodeEl = stage.querySelector('.curNode');
       if(nodeEl) nodeEl.querySelectorAll('rect, polygon, circle, ellipse, path, text').forEach(sh => nodeShapes.push(sh));
       if(edgeEls.length) g.from([...edgeEls], { opacity:0, duration:0.6, ease:'power2.inOut', stagger:0.08 });
-      if(nodeShapes.length) g.from([...nodeShapes], { opacity:0, scale:0.6, transformOrigin:'center', duration:0.6, ease:'back.out(1.7)' });
+      if((newlyRevealed || newlyHighlighted) && nodeShapes.length) g.from([...nodeShapes], { opacity:0, scale:0.6, transformOrigin:'center', duration:0.6, ease:'back.out(1.7)' });
     }
   }
   // 边：回边(循环边)用橙色虚线标出；当前分支边用绿色+流动；其余淡灰。回边不沿其遍历，避免死循环。
-  const bk = new Set(s.branchEdges.map(([a,b]) => a+'|'+b));
   const ck = new Set([...backEdges].filter(k => { const [a,b] = k.split('|'); return (s.allNodes || s.revealedNodes).has(a) && (s.allNodes || s.revealedNodes).has(b); }));
   stage.querySelectorAll('.flowchart-link').forEach(p => {
     const cls = p.getAttribute('class') || '';
@@ -934,13 +960,29 @@ async function renderStep(stage, s){
     const le = (cls.match(/LE-([\w-]+)/) || [])[1];
     if(ls && le){
       const k = ls + '|' + le;
-      if(ck.has(k)) p.classList.add('cycle-edge');
+      // 仅“当前正在执行的回边”点亮为激活态（更亮更粗橙 + 流动）；其余回边仅静态橙色虚线
+      if(execBack.has(k)) p.classList.add('cycle-edge', 'cycle-edge-active');
+      else if(ck.has(k)) p.classList.add('cycle-edge');
       else if(bk.has(k)) p.classList.add('branch-edge', 'edge-flow');
       else p.classList.add('dim-edge');
     } else {
       p.classList.add('dim-edge');
     }
   });
+  // 回边激活动效只持续几秒：停留不点“下一步”也会自动停止；离开当前节点时因整图重渲染而立即消失
+  if(edgeFxTimer){ clearTimeout(edgeFxTimer); edgeFxTimer = null; }
+  if(execBack.size){
+    const keys = [...execBack];
+    edgeFxTimer = setTimeout(() => {
+      stage.querySelectorAll('.flowchart-link').forEach(p => {
+        const cls = p.getAttribute('class') || '';
+        const ls = (cls.match(/LS-([\w-]+)/) || [])[1];
+        const le = (cls.match(/LE-([\w-]+)/) || [])[1];
+        if(ls && le && keys.includes(ls + '|' + le)) p.classList.remove('cycle-edge-active');
+      });
+      edgeFxTimer = null;
+    }, 2600);
+  }
   // 自动跟随：把当前节点滚动到可见区中心（仅当内容超出滚动范围时生效）
   const cur = stage.querySelector('.curNode');
   if(cur){
@@ -987,6 +1029,7 @@ async function generate(){
   try {
     const ast = parseFlowchart(code);
     CUR_AST = ast;   // 保存 AST 供全局模式逐步播放时判断“当前边是否指向已揭示的公共节点（被跳过）”
+    ALL_EDGE_KEYS = new Set(ast.links.filter(l => (l.stroke || 'normal') !== 'dotted').map(l => l.source + '|' + l.target));   // 全部真实边（非虚线），用于判断 prev→current 是否为真实前向边
     NODE_TEXT = new Map();                                 // 节点 id → mermaid 实际标签文本
     for(const [id,n] of ast.nodes) NODE_TEXT.set(id, (n.text && n.text.text != null) ? String(n.text.text) : id);
     if(Array.isArray(ast.subgraphs)) for(const sg of ast.subgraphs){   // 子图容器不在 ast.nodes，标题在 sg.title
@@ -1235,6 +1278,7 @@ const CAPTURE_CSS = `
 .branch-edge{stroke:#27ae60 !important;stroke-width:4px !important;}
 .dim-edge{stroke:#cbd5e1 !important;stroke-width:1px !important;}
 .cycle-edge{stroke:#f59e0b !important;stroke-width:3px !important;stroke-dasharray:6 5 !important;}
+.cycle-edge-active{stroke:#fb923c !important;stroke-width:5px !important;stroke-dasharray:8 6 !important;}
  .dimNode rect,.dimNode polygon,.dimNode circle,.dimNode ellipse,.dimNode path{fill:#eef2f7 !important;stroke:#cbd5e1 !important;stroke-width:1px !important;}
 .curNode rect,.curNode polygon,.curNode circle,.curNode ellipse,.curNode path{stroke:#ef8354 !important;stroke-width:3px !important;}
 `;
